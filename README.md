@@ -3,8 +3,22 @@
 ### Historical benchmarking for clinical-trial design
 
 🥈 **2nd Place · 16 September 2026**  
-**AI in Life Sciences Hackathon · DTU Skylab × Cursor × Amass**  
+**AI in Life Sciences Hackathon**  
 Copenhagen, Denmark
+
+<p align="center">
+  <img src="docs/assets/dtu-skylab-logo.png"
+       alt="DTU Skylab"
+       height="42">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/cursor-logo.svg"
+       alt="Cursor"
+       height="44">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/amass-logo.svg"
+       alt="Amass"
+       height="36">
+</p>
 
 > **Change your protocol. See which historical trials it starts to resemble.**
 
@@ -111,14 +125,6 @@ python -m unittest discover -s trialtwin/tests -v
 **Amedeo Bozzoli · Christian Deluca · Marcos Cuervo Santos**
 
 Built in one day at the **AI in Life Sciences Hackathon** at DTU Skylab on 16 September 2026.
-
-<p align="center">
-  <img src="docs/assets/dtu-skylab-logo.png" alt="DTU Skylab" height="36">
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/cursor-logo.svg" alt="Cursor" height="40">
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/amass-logo.svg" alt="Amass" height="26">
-</p>
 
 ## Scope
 
