@@ -1,93 +1,120 @@
-# TrialTwin
+<p align="center">
+  <img src="docs/landing.png" alt="TrialTwin protocol sandbox" width="920">
+</p>
 
-**Historical protocol sandbox for Alzheimer's Phase III trial design.**
+<h1 align="center">TrialTwin</h1>
 
-TrialTwin lets you propose a hypothetical protocol, find the closest historical trials, and change one design choice to see whether that **neighborhood** moves.
+<p align="center">
+  <strong>Stress-test a proposed Alzheimer's Phase III trial against historical protocols.</strong><br>
+  Change one design choice. See which past trials you start to resemble.
+</p>
 
-It compares **designs**, not outcomes. Similarity is resemblance, not a probability of success.
+<p align="center">
+  <img alt="Hackathon" src="https://img.shields.io/badge/DTU%20Skylab-2nd%20place-7C3AED?style=flat-square">
+  <img alt="Python" src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white">
+  <img alt="Streamlit" src="https://img.shields.io/badge/streamlit-app-FF4B4B?style=flat-square&logo=streamlit&logoColor=white">
+  <img alt="Amass" src="https://img.shields.io/badge/data-Amass%20TrialCore-06B6D4?style=flat-square">
+</p>
 
-2nd place · [AI in Life Sciences](https://www.skylab.dtu.dk/) hackathon at DTU Skylab (Cursor × Amass) · September 2026
+<p align="center">
+  Built in one afternoon at the <em>AI in Life Sciences</em> hackathon<br>
+  DTU Skylab × Cursor × Amass · September 2026
+</p>
 
 ---
 
-## What the app is saying
+## Working demo
 
-> If you design a trial like this, these past trials look most like it.  
-> Change one parameter, and you may now sit next to a different set of historical trials.
-
-It is **not** saying the protocol will work, that a drug is better, or that 95% similarity means a 95% chance of success.
-
----
-
-## Quick start
+No extra setup beyond Python. The in-app **Demo scenario** loads history (live TrialCore if you have a key, otherwise the bundled prototype set) and flips **one** protocol parameter so the neighborhood actually moves.
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Open [http://localhost:8501](http://localhost:8501).
+Open [http://localhost:8501](http://localhost:8501) → click **Demo scenario**.
 
-**Find historical matches** loads live Alzheimer's Phase III records from [Amass TrialCore](https://amass.tech) when `AMASS_API_KEY` is set. If the API is unavailable, the app falls back to a labeled prototype dataset.
+That is the demo: a protocol on the left, closest historical twins on the right, then a **What if?** shift when a knob changes.
 
-**Demo scenario** picks a one-parameter flip that actually moves the top matches.
+<p align="center">
+  <img src="docs/neighborhood.png" alt="Closest historical trials with similarity scores" width="920">
+</p>
 
-### Live Amass (optional)
+<p align="center">
+  <img src="docs/what-if.png" alt="What-if neighborhood change after one protocol edit" width="920">
+</p>
 
-```bash
-cp .env.example .env
-# put your TrialCore key in .env
-```
+<p align="center">
+  <img src="docs/neighborhood-shift.png" alt="Before and after similarity bars" width="920">
+</p>
 
-```
-AMASS_API_KEY=your_key_here
-```
+**What the app is saying**
 
-Without a key, use **Demo scenario** or expect the local JSON fallback.
+> If you design a trial like this, these past trials look most like it.  
+> Change one parameter, and you may now sit next to a different set of historical trials.
 
-### Offline pipeline (no UI)
-
-```bash
-python demo.py
-python -m unittest discover -s trialtwin/tests -v
-```
+It is **not** a success predictor. 95% similarity means design resemblance, not a 95% chance the trial works.
 
 ---
 
 ## How it works
 
-1. You set a locked **Alzheimer's disease · Phase III** protocol (stage, biomarker, duration, endpoint, sample size, target).
-2. TrialTwin scores every historical trial with a **transparent weighted heuristic** (exact / similar / different / unknown per feature).
-3. You see the top neighbors, a feature-by-feature “why this match?”, and a descriptive outcome profile when labels exist.
-4. **What if?** freezes the first search, then re-ranks after you change a control.
+```mermaid
+flowchart LR
+  A[Your protocol] --> B[Similarity engine]
+  C[Amass TrialCore<br/>or local JSON] --> B
+  B --> D[Top historical neighbors]
+  D --> E[What if? one knob changes]
+  E --> D
+```
 
-Matching lives in `trialtwin/engine.py`. The Streamlit app does not score. The Amass adapter does not invent clinical fields: missing values stay `unknown` / `None`.
+1. You lock **Alzheimer's disease · Phase III**, then set stage, biomarker, duration, endpoint, N, and target.
+2. A transparent heuristic scores every historical trial (exact / similar / different / unknown).
+3. You get the closest neighbors and a feature-by-feature **Why this match?**
+4. Change one control. **What if?** shows who entered and left the top three.
 
-Live TrialCore does **not** classify success or failure, and often has no structured disease stage or biomarker flag. Those gaps are shown as unknown. The mock file `trialtwin/data/alzheimer_trials.json` is synthetic and labeled for the sandbox only.
+Scoring lives in `trialtwin/engine.py`. The UI does not invent matches. Missing TrialCore fields stay `unknown` — live data often has no success/failure label, disease stage, or biomarker flag.
 
 ---
 
-## Repository layout
+## Run it yourself
 
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+streamlit run app.py
 ```
-app.py                      Streamlit entrypoint
-demo.py                     Offline ranking + what-if (local JSON)
-requirements.txt
-.env.example
-trialtwin/
-  app.py                    UI
-  engine.py                 Similarity, ranking, scenario compare
-  models.py                 Protocol and HistoricalTrial
-  amass_client.py           TrialCore HTTP + local fallback
-  normalize.py              Amass JSON → HistoricalTrial
-  data/alzheimer_trials.json
-  tests/
+
+| Control | What it does |
+| --- | --- |
+| **Find historical matches** | Rank live (or fallback) trials against the current knobs |
+| **Demo scenario** | One-click neighborhood shift for a pitch or README-style walkthrough |
+
+Optional live data:
+
+```bash
+cp .env.example .env   # set AMASS_API_KEY
+```
+
+Without a key, TrialTwin still runs on `trialtwin/data/alzheimer_trials.json` (synthetic, labeled for the sandbox only).
+
+```bash
+python -m unittest discover -s trialtwin/tests -v
 ```
 
 ---
 
-## Team
+## Repo
 
-Built in one afternoon at DTU Skylab: students using Cursor and Amass TrialCore. Prototype, not medical software.
+```
+app.py                         Streamlit entry
+trialtwin/app.py               UI
+trialtwin/engine.py            Similarity + what-if
+trialtwin/amass_client.py      TrialCore + local fallback
+trialtwin/normalize.py         Amass JSON → trial records
+trialtwin/data/                Prototype Alzheimer's set
+docs/                          Demo screenshots
+```
+
+Prototype, not medical software. Built to turn life-science trial data into something that **runs**.
