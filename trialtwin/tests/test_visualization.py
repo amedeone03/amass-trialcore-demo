@@ -14,6 +14,7 @@ from trialtwin.visualization import (
     build_match_fingerprint,
     build_match_profile,
     build_similarity_coverage_points,
+    build_spotlight_rank_flow_data,
     calculate_neighborhood_shift,
     concise_trial_label,
     neighborhood_change_caption,
@@ -334,3 +335,88 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertEqual(len(local), 6)
         points = build_similarity_coverage_points(ranking_b, list(trials))
         self.assertFalse(scatter_is_informative(points))
+
+    def test_spotlight_rank_flow_flags_and_labels(self) -> None:
+        protocol = _protocol()
+        a1 = calculate_similarity(protocol, _trial("A1", "Early Alzheimer's anti-amyloid trial"))
+        a2 = calculate_similarity(protocol, _trial("A2", "Prodromal Alzheimer's amyloid trial"))
+        b1 = calculate_similarity(protocol, _trial("B1", "Mild-to-moderate Alzheimer's tau-directed trial"))
+        ranking_a = [a1, a2]
+        ranking_b = [b1, a1]
+        shift = calculate_neighborhood_shift(ranking_a, ranking_b, top_k=1, chart_k=2)
+        flow = build_spotlight_rank_flow_data(shift)
+        by_id = {row.trial_id: row for row in flow}
+        self.assertEqual(by_id["A1"].before_rank, 1)
+        self.assertEqual(by_id["A1"].after_rank, 2)
+        self.assertEqual(by_id["B1"].after_rank, 1)
+        self.assertTrue(by_id["B1"].moved_in_top3)
+        self.assertTrue(by_id["A1"].moved_out_top3)
+        self.assertFalse(by_id["A1"].stayed_top3)
+        self.assertTrue(by_id["A2"].contextual)
+        self.assertEqual(by_id["A1"].short_label, "Early anti-amyloid")
+        self.assertEqual(by_id["B1"].short_label, "Tau-directed")
+        self.assertIn("Early Alzheimer's anti-amyloid trial", by_id["A1"].full_title)
+        self.assertEqual(by_id["A1"].left_label, "#1 Early anti-amyloid")
+        self.assertEqual(by_id["B1"].right_label, "#1 Tau-directed")
+        self.assertIsNone(by_id["A2"].after_rank)
+        self.assertEqual(build_spotlight_rank_flow_data(calculate_neighborhood_shift([], [])), ())
+
+    def test_spotlight_stayed_top3(self) -> None:
+        protocol = _protocol()
+        a1 = calculate_similarity(protocol, _trial("A1", "Alpha one"))
+        a2 = calculate_similarity(protocol, _trial("A2", "Alpha two"))
+        ranking = [a1, a2]
+        shift = calculate_neighborhood_shift(ranking, ranking, top_k=1, chart_k=2)
+        flow = {row.trial_id: row for row in build_spotlight_rank_flow_data(shift)}
+        self.assertTrue(flow["A1"].stayed_top3)
+        self.assertFalse(flow["A1"].moved_in_top3)
+        self.assertFalse(flow["A1"].moved_out_top3)
+        self.assertTrue(flow["A2"].contextual)
+
+    def test_demo_spotlight_top3_swap(self) -> None:
+        trials, _source, _note, protocol_a, protocol_b = demo_scenario_bundle()
+        shift = calculate_neighborhood_shift(
+            rank_historical_trials(protocol_a, list(trials)),
+            rank_historical_trials(protocol_b, list(trials)),
+            top_k=3,
+            chart_k=5,
+        )
+        flow = build_spotlight_rank_flow_data(shift)
+        entered = {row.short_label for row in flow if row.moved_in_top3}
+        left = {row.short_label for row in flow if row.moved_out_top3}
+        self.assertEqual(entered, {"Tau-directed", "BACE inhibitor", "Moderate symptomatic"})
+        self.assertEqual(left, {"Early anti-amyloid", "PET/CSF anti-amyloid", "Prodromal amyloid"})
+        first_after = next(row for row in flow if row.after_rank == 1)
+        first_before = next(row for row in flow if row.before_rank == 1)
+        self.assertEqual(first_after.short_label, "Tau-directed")
+        self.assertEqual(first_before.short_label, "Early anti-amyloid")
+        self.assertTrue(all(row.before_rank is not None and row.after_rank is not None for row in flow))
+        self.assertEqual(min(row.before_rank for row in flow), 1)
+        self.assertEqual(min(row.after_rank for row in flow), 1)
+        stayed = [row for row in flow if row.stayed_top3]
+        self.assertEqual(stayed, [])
+        by_id = {row.trial_id: row for row in flow}
+        for source in shift.rows:
+            prepared = by_id[source.trial_id]
+            self.assertEqual(prepared.before_rank, source.rank_before)
+            self.assertEqual(prepared.after_rank, source.rank_after)
+            self.assertEqual(prepared.full_title, source.title)
+
+    def test_spotlight_empty_and_partial_rankings(self) -> None:
+        empty = build_spotlight_rank_flow_data(calculate_neighborhood_shift([], []))
+        self.assertEqual(empty, ())
+        protocol = _protocol()
+        only_before = calculate_similarity(protocol, _trial("ONLY_A", "Early Alzheimer's anti-amyloid trial"))
+        only_after = calculate_similarity(protocol, _trial("ONLY_B", "Mild-to-moderate Alzheimer's tau-directed trial"))
+        shared = calculate_similarity(protocol, _trial("BOTH", "PET plus CSF anti-amyloid trial"))
+        shift = calculate_neighborhood_shift([only_before, shared], [only_after, shared], top_k=1, chart_k=2)
+        flow = {row.trial_id: row for row in build_spotlight_rank_flow_data(shift)}
+        self.assertIsNone(flow["ONLY_A"].after_rank)
+        self.assertIsNone(flow["ONLY_B"].before_rank)
+        self.assertEqual(flow["BOTH"].before_rank, 2)
+        self.assertEqual(flow["BOTH"].after_rank, 2)
+        self.assertEqual(flow["ONLY_A"].before_similarity, only_before.similarity_score)
+        self.assertIsNone(flow["ONLY_A"].after_similarity)
+        self.assertFalse(any(row.before_rank == 0 or row.after_rank == 0 for row in flow.values()))
+        self.assertEqual(flow["ONLY_A"].short_label, "Early anti-amyloid")
+        self.assertIn("PET plus CSF", flow["BOTH"].full_title)

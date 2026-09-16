@@ -25,8 +25,8 @@ That one field swap is the strongest honest neighborhood movement on the bundled
 5. Pause briefly on historical match cards, similarity, and coverage (4–6 s).
 6. Open **Why this match?** to show the **Match profile** radar (6–8 s).
 7. Show the protocol change card: Biomarker confirmation **Required → Not required** (8–10 s).
-8. Show **Historical neighborhood shift** and **3 of 3 top historical neighbors changed**.
-9. End on the rank-flow graph (10–14 s). Do not open **Explore evidence** or the scatter plot — the synthetic demo hides it because coverage does not vary.
+8. Hold on **Historical neighborhood shift** with **3 of 3 / TOP HISTORICAL NEIGHBORS CHANGED**.
+9. End on the spotlight rank-flow graph (10–14 s): **BEFORE** `#1 Early anti-amyloid` / `#2 PET/CSF anti-amyloid` / `#3 Prodromal amyloid` becoming **AFTER** `#1 Tau-directed` / `#2 BACE inhibitor` / `#3 Moderate symptomatic`. Include the **MOVED IN** / **MOVED OUT** columns if they fit. Do not open **Explore evidence** or the scatter plot — the synthetic demo hides the scatter because coverage does not vary.
 10. Stop recording.
 
 Do not show the terminal, API keys, desktop clutter, Streamlit errors, long loading delays, or unrelated tabs.

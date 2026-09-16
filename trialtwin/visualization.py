@@ -48,6 +48,32 @@ class RankShiftRow:
 
 
 @dataclass(frozen=True)
+class SpotlightFlowRow:
+    trial_id: str
+    short_label: str
+    full_title: str
+    before_rank: int | None
+    after_rank: int | None
+    before_similarity: float | None
+    after_similarity: float | None
+    before_coverage: float | None
+    after_coverage: float | None
+    moved_in_top3: bool
+    moved_out_top3: bool
+    stayed_top3: bool
+    contextual: bool
+    color: str
+    left_label: str
+    right_label: str
+
+
+SPOTLIGHT_CYAN = "#22D3EE"
+SPOTLIGHT_VIOLET = "#C4B5FD"
+SPOTLIGHT_OUT = "#8B87A3"
+SPOTLIGHT_CONTEXT = "#64748B"
+
+
+@dataclass(frozen=True)
 class NeighborhoodShift:
     top_k: int
     chart_k: int
@@ -364,3 +390,51 @@ def neighborhood_change_caption(shift: NeighborhoodShift) -> str:
         f"{shift.changed_count} of {shift.top_k} "
         f"top historical neighbors changed"
     )
+
+
+def _rank_tag(rank: int | None, short_label: str) -> str:
+    if rank is None:
+        return ""
+    return f"#{rank} {short_label}"
+
+
+def build_spotlight_rank_flow_data(shift: NeighborhoodShift) -> tuple[SpotlightFlowRow, ...]:
+    """Presentation flags and labels for the spotlight slopegraph.
+
+    Does not recompute ranks or similarity.
+    """
+    rows: list[SpotlightFlowRow] = []
+    for row in shift.rows:
+        moved_in = row.movement == "moved_in"
+        moved_out = row.movement == "moved_out"
+        stayed = row.dominant and row.movement == "stayed"
+        contextual = not row.dominant
+        if moved_in:
+            color = SPOTLIGHT_CYAN
+        elif moved_out:
+            color = SPOTLIGHT_OUT
+        elif stayed:
+            color = SPOTLIGHT_VIOLET
+        else:
+            color = SPOTLIGHT_CONTEXT
+        rows.append(
+            SpotlightFlowRow(
+                trial_id=row.trial_id,
+                short_label=row.short_title,
+                full_title=row.title,
+                before_rank=row.rank_before,
+                after_rank=row.rank_after,
+                before_similarity=row.similarity_before,
+                after_similarity=row.similarity_after,
+                before_coverage=row.coverage_before,
+                after_coverage=row.coverage_after,
+                moved_in_top3=moved_in,
+                moved_out_top3=moved_out,
+                stayed_top3=stayed,
+                contextual=contextual,
+                color=color,
+                left_label=_rank_tag(row.rank_before, row.short_title),
+                right_label=_rank_tag(row.rank_after, row.short_title),
+            )
+        )
+    return tuple(rows)

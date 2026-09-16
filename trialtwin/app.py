@@ -41,8 +41,8 @@ from trialtwin.visualization import (
     NeighborhoodShift,
     build_match_profile,
     build_similarity_coverage_points,
+    build_spotlight_rank_flow_data,
     calculate_neighborhood_shift,
-    concise_trial_label,
     scatter_is_informative,
 )
 
@@ -178,11 +178,6 @@ def describe_protocol_changes(protocol_a: Protocol, protocol_b: Protocol) -> lis
     ]
 
 
-def short_label(result) -> str:
-    title = result.trial_title.strip() or result.trial_id
-    return concise_trial_label(title)
-
-
 def _hex_rgba(hex_color: str, alpha: float) -> str:
     value = hex_color.lstrip("#")
     red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
@@ -198,68 +193,208 @@ def apply_protocol_to_widgets(protocol: Protocol) -> None:
     st.session_state.protocol_intervention = protocol.intervention
 
 
+def _smooth_path(y0: float, y1: float, steps: int = 28) -> tuple[list[float], list[float]]:
+    xs: list[float] = []
+    ys: list[float] = []
+    for index in range(steps + 1):
+        t = index / steps
+        eased = t * t * (3.0 - 2.0 * t)
+        xs.append(t)
+        ys.append(y0 + (y1 - y0) * eased)
+    return xs, ys
+
+
+def _pct(value: float | None, decimals: int) -> str:
+    if value is None:
+        return "—"
+    return f"{value * 100:.{decimals}f}%"
+
+
 def rank_shift_chart(shift: NeighborhoodShift) -> go.Figure:
+    flow = build_spotlight_rank_flow_data(shift)
     fig = go.Figure()
     ranks = [
         rank
-        for row in shift.rows
-        for rank in (row.rank_before, row.rank_after)
+        for row in flow
+        for rank in (row.before_rank, row.after_rank)
         if rank is not None
     ]
     ymax = max(ranks) if ranks else shift.chart_k
-    for row in shift.rows:
-        if row.rank_before is None or row.rank_after is None:
-            continue
-        dash = "dash" if row.movement != "stayed" else "solid"
-        alpha = 1.0 if row.dominant else 0.28
-        color = _hex_rgba(row.color, alpha)
-        sim_a = "—" if row.similarity_before is None else f"{row.similarity_before * 100:.1f}%"
-        sim_b = "—" if row.similarity_after is None else f"{row.similarity_after * 100:.1f}%"
-        cov_a = "—" if row.coverage_before is None else f"{row.coverage_before * 100:.0f}%"
-        cov_b = "—" if row.coverage_after is None else f"{row.coverage_after * 100:.0f}%"
-        fig.add_trace(
-            go.Scatter(
-                x=["Before", "After"],
-                y=[row.rank_before, row.rank_after],
-                mode="lines+markers",
-                name=row.short_title,
-                line=dict(color=color, width=3.4 if row.dominant else 1.6, dash=dash),
-                marker=dict(size=12 if row.dominant else 7, color=color),
-                hovertemplate=(
-                    f"{row.title}<br>"
-                    f"Rank {row.rank_before} → {row.rank_after}<br>"
-                    f"Similarity {sim_a} → {sim_b}<br>"
-                    f"Coverage {cov_a} → {cov_b}"
-                    "<extra></extra>"
-                ),
+    ordered = sorted(
+        flow,
+        key=lambda row: (row.contextual, row.moved_out_top3, not row.moved_in_top3),
+    )
+    for row in ordered:
+        accent = not row.contextual
+        width = 5.2 if accent else 1.8
+        node = 22 if accent else 11
+        ring = 3 if row.moved_in_top3 else 2 if accent else 1
+        color = _hex_rgba(row.color, 1.0 if accent else 0.38)
+        glow = _hex_rgba(row.color, 0.18 if accent else 0.06)
+        hover_lines = [row.full_title]
+        if row.before_rank is not None:
+            hover_lines.append(f"Before rank #{row.before_rank}")
+        if row.after_rank is not None:
+            hover_lines.append(f"After rank #{row.after_rank}")
+        if row.before_similarity is not None:
+            hover_lines.append(f"Before similarity {_pct(row.before_similarity, 1)}")
+        if row.after_similarity is not None:
+            hover_lines.append(f"After similarity {_pct(row.after_similarity, 1)}")
+        if row.before_coverage is not None:
+            hover_lines.append(f"Before coverage {_pct(row.before_coverage, 0)}")
+        if row.after_coverage is not None:
+            hover_lines.append(f"After coverage {_pct(row.after_coverage, 0)}")
+        hover = "<br>".join(hover_lines) + "<extra></extra>"
+        if row.before_rank is not None and row.after_rank is not None:
+            xs, ys = _smooth_path(float(row.before_rank), float(row.after_rank))
+            fig.add_trace(
+                go.Scatter(
+                    x=xs,
+                    y=ys,
+                    mode="lines",
+                    line=dict(color=glow, width=width + 10, shape="spline"),
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
             )
-        )
+            fig.add_trace(
+                go.Scatter(
+                    x=xs,
+                    y=ys,
+                    mode="lines",
+                    line=dict(color=color, width=width, shape="spline"),
+                    hoverinfo="skip",
+                    showlegend=False,
+                )
+            )
+        node_x: list[float] = []
+        node_y: list[float] = []
+        if row.before_rank is not None:
+            node_x.append(0.0)
+            node_y.append(float(row.before_rank))
+        if row.after_rank is not None:
+            node_x.append(1.0)
+            node_y.append(float(row.after_rank))
+        if node_x:
+            fig.add_trace(
+                go.Scatter(
+                    x=node_x,
+                    y=node_y,
+                    mode="markers",
+                    marker=dict(
+                        size=node,
+                        color=color,
+                        line=dict(width=ring, color="#E0F2FE" if row.moved_in_top3 else color),
+                    ),
+                    hovertemplate=hover,
+                    showlegend=False,
+                    cliponaxis=False,
+                )
+            )
+
+    annotations = [
+        dict(
+            x=0,
+            y=1.08,
+            xref="x",
+            yref="paper",
+            text="<b>BEFORE</b>",
+            showarrow=False,
+            font=dict(size=13, color="#67E8F9"),
+            xanchor="center",
+        ),
+        dict(
+            x=1,
+            y=1.08,
+            xref="x",
+            yref="paper",
+            text="<b>AFTER</b>",
+            showarrow=False,
+            font=dict(size=13, color="#67E8F9"),
+            xanchor="center",
+        ),
+    ]
+    for row in flow:
+        label_color = "#E5E7EB" if not row.contextual else "#94A3B8"
+        label_size = 13 if not row.contextual else 11
+        if row.left_label and row.before_rank is not None:
+            annotations.append(
+                dict(
+                    x=-0.12,
+                    y=row.before_rank,
+                    xref="x",
+                    yref="y",
+                    text=row.left_label,
+                    showarrow=False,
+                    xanchor="right",
+                    yanchor="middle",
+                    font=dict(size=label_size, color=label_color),
+                )
+            )
+        if row.right_label and row.after_rank is not None:
+            annotations.append(
+                dict(
+                    x=1.12,
+                    y=row.after_rank,
+                    xref="x",
+                    yref="y",
+                    text=row.right_label,
+                    showarrow=False,
+                    xanchor="left",
+                    yanchor="middle",
+                    font=dict(size=label_size, color=label_color),
+                )
+            )
+
     fig.update_layout(
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(8,12,24,0.55)",
+        plot_bgcolor="rgba(8,12,24,0.35)",
         font=dict(color="#E5E7EB", size=12, family="IBM Plex Sans"),
-        height=max(280, 46 * max(len(shift.rows), 1) + 56),
-        margin=dict(l=40, r=24, t=36, b=28),
-        showlegend=True,
-        legend=dict(
-            orientation="h",
-            y=1.12,
-            x=0,
-            bgcolor="rgba(0,0,0,0)",
-            font=dict(size=11, color="#E5E7EB"),
-        ),
-        transition=dict(duration=400),
-        xaxis=dict(type="category", tickfont=dict(size=13)),
-        yaxis=dict(
-            title="Rank",
-            autorange="reversed",
-            dtick=1,
-            range=[0.5, ymax + 0.5],
-            gridcolor="rgba(38,50,68,0.7)",
+        height=500,
+        margin=dict(l=196, r=196, t=48, b=16),
+        showlegend=False,
+        annotations=annotations,
+        xaxis=dict(
+            range=[-1.02, 2.02],
+            tickvals=[],
+            showticklabels=False,
+            showgrid=False,
             zeroline=False,
+            visible=False,
         ),
+        yaxis=dict(
+            autorange="reversed",
+            range=[0.35, ymax + 0.55],
+            tickvals=[],
+            showticklabels=False,
+            title="",
+            showgrid=False,
+            zeroline=False,
+            showline=False,
+            ticks="",
+            visible=False,
+        ),
+        shapes=[
+            dict(
+                type="line",
+                x0=0,
+                x1=0,
+                y0=0.45,
+                y1=ymax + 0.35,
+                line=dict(color="rgba(103,232,249,0.16)", width=1),
+                layer="below",
+            ),
+            dict(
+                type="line",
+                x0=1,
+                x1=1,
+                y0=0.45,
+                y1=ymax + 0.35,
+                line=dict(color="rgba(103,232,249,0.16)", width=1),
+                layer="below",
+            ),
+        ],
     )
-    fig.update_xaxes(gridcolor="rgba(38,50,68,0.35)")
     return fig
 
 
@@ -498,12 +633,8 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
 
         changes = describe_protocol_changes(protocol_a, protocol_b)
         shift = calculate_neighborhood_shift(
-            comparison.ranking_a, comparison.ranking_b, top_k=DISPLAY_TOP, chart_k=5
+            comparison.ranking_a, comparison.ranking_b, top_k=DISPLAY_TOP, chart_k=6
         )
-        labels = {
-            item.trial_id: short_label(item)
-            for item in list(comparison.ranking_a) + list(comparison.ranking_b)
-        }
 
         st.caption("Protocol changed — historical neighborhood recomputed.")
         with st.container(border=True):
@@ -515,29 +646,49 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
                 st.markdown(f"## {before}  →  {after}")
 
         st.subheader("Historical neighborhood shift")
-        st.markdown(f"# {shift.changed_count} of {shift.top_k}")
-        st.markdown("**top historical neighbors changed**")
-        st.caption(f"Top match changed: {'Yes' if shift.top_match_changed else 'No'}")
-        st.caption("These are neighborhood changes, not improvements.")
+        st.html(
+            f"""
+            <div class="tt-shift-hero">
+              <div class="tt-shift-count">{shift.changed_count} of {shift.top_k}</div>
+              <div class="tt-shift-kicker">Top historical neighbors changed</div>
+            </div>
+            """
+        )
 
         if not shift.can_draw:
             st.caption(shift.empty_reason)
         else:
-            st.plotly_chart(rank_shift_chart(shift), config={"displayModeBar": False})
+            st.plotly_chart(
+                rank_shift_chart(shift),
+                use_container_width=True,
+                config={"displayModeBar": False},
+            )
 
+        st.caption(f"Top match changed: {'Yes' if shift.top_match_changed else 'No'}")
+        st.caption("These are neighborhood changes, not improvements.")
+
+        flow = build_spotlight_rank_flow_data(shift)
+        moved_in = sorted(
+            [row for row in flow if row.moved_in_top3],
+            key=lambda row: row.after_rank or 99,
+        )
+        moved_out = sorted(
+            [row for row in flow if row.moved_out_top3],
+            key=lambda row: row.before_rank or 99,
+        )
         moved_in_col, moved_out_col = st.columns(2)
         with moved_in_col:
             st.caption("MOVED IN")
-            if not shift.moved_in_ids:
+            if not moved_in:
                 st.markdown("None")
-            for trial_id in shift.moved_in_ids:
-                st.markdown(f"**{labels.get(trial_id, trial_id)} trial**")
+            for row in moved_in:
+                st.markdown(f"**{row.short_label}**")
         with moved_out_col:
             st.caption("MOVED OUT")
-            if not shift.moved_out_ids:
+            if not moved_out:
                 st.markdown("None")
-            for trial_id in shift.moved_out_ids:
-                st.markdown(f"**{labels.get(trial_id, trial_id)} trial**")
+            for row in moved_out:
+                st.markdown(f"**{row.short_label}**")
 
         with st.expander("Top-3 mean resemblance"):
             st.caption("Secondary context. Not an improvement score.")
@@ -625,10 +776,21 @@ def main() -> None:
           text-transform: uppercase;
         }
         div[data-testid="stProgressBar"] > div { background: linear-gradient(90deg, #7C3AED, #06B6D4); }
-        div[data-testid="stMetricValue"] {
-          overflow: visible !important;
-          text-overflow: clip !important;
-          white-space: nowrap;
+        .tt-shift-hero { margin: 0.15rem 0 0.35rem; }
+        .tt-shift-count {
+          font-size: 2.85rem;
+          font-weight: 650;
+          letter-spacing: -0.04em;
+          line-height: 1.05;
+          color: #F5F3FF;
+        }
+        .tt-shift-kicker {
+          color: #67E8F9;
+          font-size: 0.78rem;
+          font-weight: 650;
+          letter-spacing: 0.14em;
+          text-transform: uppercase;
+          margin-top: 0.15rem;
         }
         </style>
         <div class="tt-hero">
