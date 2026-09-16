@@ -28,10 +28,10 @@ PURPLE = "#7C3AED"
 CYAN = "#06B6D4"
 
 STATUS_GLYPH = {
-    "match": "✓",
-    "partial": "~",
-    "mismatch": "—",
-    "unknown": "?",
+    "match": ":green[✓]",
+    "partial": ":blue[~]",
+    "mismatch": ":red[—]",
+    "unknown": ":gray[?]",
 }
 
 FEATURE_LABEL = {
@@ -270,25 +270,27 @@ def before_after_chart(ranking_a, ranking_b) -> go.Figure:
             hovertemplate="After: %{x:.1f}%<extra></extra>",
         )
     )
+    fig.update_traces(marker_line_width=0)
     fig.update_layout(
         barmode="group",
         xaxis_title="Historical similarity (%)",
         xaxis=dict(range=[0, 100]),
-        legend=dict(orientation="h", y=1.12),
+        legend=dict(orientation="h", y=1.14, bgcolor="rgba(0,0,0,0)"),
         paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(17,24,39,0.9)",
-        font=dict(color="#E5E7EB", size=12),
-        height=max(280, 58 * len(ordered_ids) + 90),
-        margin=dict(l=8, r=8, t=28, b=36),
-        bargap=0.28,
+        plot_bgcolor="rgba(8,12,24,0.55)",
+        font=dict(color="#E5E7EB", size=12, family="IBM Plex Sans"),
+        height=max(300, 64 * len(ordered_ids) + 96),
+        margin=dict(l=8, r=8, t=36, b=36),
+        bargap=0.22,
+        bargroupgap=0.08,
     )
-    fig.update_xaxes(gridcolor="#263244", zeroline=False)
-    fig.update_yaxes(gridcolor="#263244")
+    fig.update_xaxes(gridcolor="rgba(38,50,68,0.7)", zeroline=False)
+    fig.update_yaxes(gridcolor="rgba(38,50,68,0.35)")
     return fig
 
 
 def render_why(result) -> None:
-    st.caption("✓ Exact match · ~ Similar · — Different · ? Unknown")
+    st.caption(":green[✓] Exact  ·  :blue[~] Similar  ·  :red[—] Different  ·  :gray[?] Unknown")
     lines = [
         "| Feature | Your protocol | Historical trial | |",
         "| --- | --- | --- | --- |",
@@ -331,19 +333,23 @@ def render_rank_list(results) -> None:
         )
 
 
-def render_match_card(result, trial_by_id: dict[str, HistoricalTrial], source: str) -> None:
+def render_match_card(
+    result, trial_by_id: dict[str, HistoricalTrial], source: str, rank: int
+) -> None:
     outcome_text, outcome_color = OUTCOME_BADGE.get(
         result.historical_outcome_class, ("UNKNOWN", "gray")
     )
+    rank_color = "violet" if rank == 1 else "blue" if rank == 2 else "gray"
     with st.container(border=True):
         title_col, score_col = st.columns([3.2, 1.2], vertical_alignment="center")
         with title_col:
+            st.badge(f"Match {rank}", color=rank_color)
             st.markdown(f"**{result.trial_title}**")
             st.badge(outcome_text, color=outcome_color)
         with score_col:
-            st.markdown(f"### {result.similarity_score * 100:.1f}%")
-            st.caption("Similarity")
-        with st.expander("Why this match?"):
+            st.metric("Similarity", f"{result.similarity_score * 100:.1f}%")
+        st.progress(min(max(result.similarity_score, 0.0), 1.0))
+        with st.expander("Why this match?", expanded=rank == 1):
             render_why(result)
         trial = trial_by_id.get(result.trial_id)
         with st.expander("Evidence"):
@@ -371,7 +377,7 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
         top_changed = comparison.ranking_a[0].trial_id != comparison.ranking_b[0].trial_id
 
         for title, before, after in changes:
-            st.markdown(f"**{title}:** {before} → {after}")
+            st.markdown(f":violet-background[**{title}**]  {before}  →  :blue[**{after}**]")
 
         st.subheader("Historical neighborhood changed")
         metric_cols = st.columns(3)
@@ -389,10 +395,10 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
 
         before_col, after_col = st.columns(2)
         with before_col:
-            st.markdown("**Current protocol**")
+            st.markdown(":violet[**Before**]")
             render_rank_list(comparison.ranking_a)
         with after_col:
-            st.markdown("**What-if protocol**")
+            st.markdown(":blue[**After**]")
             render_rank_list(comparison.ranking_b)
 
         st.plotly_chart(before_after_chart(comparison.ranking_a, comparison.ranking_b), config={"displayModeBar": False})
@@ -400,12 +406,15 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
 
         entered = comparison.top_matches_only_in_b
         left = comparison.top_matches_only_in_a
-        titles = {item.trial_id: item.trial_title for item in comparison.ranking_a}
+        labels = {
+            item.trial_id: short_label(item)
+            for item in list(comparison.ranking_a) + list(comparison.ranking_b)
+        }
         if entered or left:
             for trial_id in entered:
-                st.markdown(f"Moved into top {DISPLAY_TOP}: {titles.get(trial_id, trial_id)[:48]}")
+                st.badge(f"Moved in · {labels.get(trial_id, trial_id)}", color="blue")
             for trial_id in left:
-                st.markdown(f"Moved out of top {DISPLAY_TOP}: {titles.get(trial_id, trial_id)[:48]}")
+                st.badge(f"Moved out · {labels.get(trial_id, trial_id)}", color="orange")
 
 
 def main() -> None:
@@ -447,20 +456,50 @@ def main() -> None:
         <style>
         [data-testid="stSidebar"] { display: none; }
         [data-testid="stHeader"] { background: transparent; }
-        .block-container { padding-top: 1.1rem; padding-bottom: 2.2rem; max-width: 1400px; }
-        div[data-testid="stVerticalBlockBorderWrapper"] { background: #111827; }
+        .stApp {
+          background:
+            radial-gradient(1100px 460px at 8% -8%, rgba(124,58,237,.34), transparent 56%),
+            radial-gradient(900px 380px at 96% 0%, rgba(6,182,212,.18), transparent 52%),
+            #070b16;
+        }
+        .block-container { padding-top: 1rem; padding-bottom: 2.4rem; max-width: 1440px; }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+          background: linear-gradient(180deg, rgba(17,24,39,.94), rgba(11,16,32,.92));
+          border: 1px solid rgba(124,58,237,.22) !important;
+          box-shadow: 0 18px 50px rgba(0,0,0,.28);
+        }
+        .tt-hero h1 {
+          margin: 0;
+          font-size: 2.35rem;
+          letter-spacing: -0.04em;
+          background: linear-gradient(90deg, #F5F3FF 10%, #A78BFA 55%, #22D3EE 100%);
+          -webkit-background-clip: text;
+          background-clip: text;
+          color: transparent;
+        }
+        .tt-hero p { margin: .35rem 0 0; color: #9CA3AF; }
+        .tt-kicker {
+          color: #67E8F9;
+          font-size: .72rem;
+          font-weight: 600;
+          letter-spacing: .16em;
+          text-transform: uppercase;
+        }
+        div[data-testid="stProgressBar"] > div { background: linear-gradient(90deg, #7C3AED, #06B6D4); }
         </style>
+        <div class="tt-hero">
+          <div class="tt-kicker">Amass TrialCore · prototype</div>
+          <h1>TrialTwin</h1>
+          <p>Stress-test a proposed trial against historical evidence. Change one design choice and watch the neighborhood move.</p>
+        </div>
         """
     )
 
     header_left, header_right = st.columns([3.2, 1.1], vertical_alignment="center")
     with header_left:
-        st.title("TrialTwin")
-        st.subheader("Historical Protocol Sandbox")
-        st.caption("Stress-test a proposed trial against historical evidence.")
-        st.caption("Change your protocol, and see which historical trials it starts to resemble.")
+        st.caption("Alzheimer's disease · Phase III historical protocol sandbox")
     with header_right:
-        st.badge("PROTOTYPE • ALZHEIMER'S PHASE III", color="violet")
+        st.badge("PROTOTYPE", color="violet")
         source_placeholder = st.empty()
 
     protocol_col, neighborhood_col = st.columns([0.40, 0.60], gap="medium")
@@ -493,6 +532,12 @@ def main() -> None:
             if st.session_state.get("protocol_target") not in target_options:
                 st.session_state.protocol_target = default_target
             target = st.selectbox("Target", target_options, key="protocol_target")
+            recap = st.container(horizontal=True)
+            with recap:
+                st.badge(str(stage), color="violet")
+                st.badge(str(biomarker_label), color="blue")
+                st.badge(f"{duration_months} months")
+                st.badge(str(endpoint), color="gray")
 
             find_col, demo_col = st.columns(2)
             with find_col:
@@ -522,7 +567,9 @@ def main() -> None:
         if not st.session_state.matches_requested or cached_trials is None:
             source_placeholder.badge("SOURCE PENDING", color="gray")
             with st.container(border=True):
-                st.markdown("Find historical matches to load evidence, then change one design choice.")
+                st.markdown("### Ready when you are")
+                st.markdown("Find historical matches to load live evidence, then change **one** design choice.")
+                st.caption("Similarity is resemblance only — not a clinical prediction.")
             return
 
         trials = cached_trials
@@ -538,8 +585,8 @@ def main() -> None:
         summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
         trial_by_id = {trial.id: trial for trial in trials}
         st.caption("Similarity is a transparent heuristic based on protocol features. It is not a clinical outcome prediction.")
-        for result in ranked[:DISPLAY_TOP]:
-            render_match_card(result, trial_by_id, source)
+        for index, result in enumerate(ranked[:DISPLAY_TOP], start=1):
+            render_match_card(result, trial_by_id, source, index)
 
         with st.container(border=True):
             st.markdown("**Historical outcome profile**")
