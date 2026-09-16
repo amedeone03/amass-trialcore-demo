@@ -63,6 +63,8 @@ Deterministic rules in `trialtwin/endpoints.py`. No LLM, embeddings, or fuzzy ma
 
 Recognized families: CDR-SB, ADAS-Cog, MMSE, ADCS-ADL.
 
+Plain `CDR` / `Clinical Dementia Rating` is **not** mapped to CDR-SB. Plain `ADAS` is **not** mapped to ADAS-Cog.
+
 Unrecognized strings become `other: <original>`. Multiple distinct families stay `ambiguous:`.
 
 The engine compares canonical `primary_endpoint`. Evidence shows `primary_endpoint_raw` when present.

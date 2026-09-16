@@ -54,6 +54,14 @@ class EndpointCanonicalizationTests(unittest.TestCase):
         self.assertIn("ADAS-Cog", canonical)
         self.assertEqual(raw, "CDR-SB | ADAS-Cog")
 
+    def test_generic_cdr_is_not_cdr_sb(self) -> None:
+        self.assertTrue(canonicalize_endpoint("CDR").startswith("other:"))
+        self.assertTrue(canonicalize_endpoint("Clinical Dementia Rating").startswith("other:"))
+
+    def test_generic_adas_is_not_adas_cog(self) -> None:
+        self.assertTrue(canonicalize_endpoint("ADAS").startswith("other:"))
+        self.assertTrue(canonicalize_endpoint("Alzheimer's Disease Assessment Scale").startswith("other:"))
+
     def test_same_family_not_ambiguous(self) -> None:
         canonical, raw = canonicalize_endpoint_list(
             ["CDR-SB", "Clinical Dementia Rating Sum of Boxes"]

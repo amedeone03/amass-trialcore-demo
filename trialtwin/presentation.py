@@ -2,12 +2,65 @@
 
 from __future__ import annotations
 
+from collections.abc import MutableMapping
+from typing import Any
+
 from trialtwin.engine import LOW_COVERAGE_THRESHOLD, SimilarityResult, is_low_coverage
-from trialtwin.models import HistoricalTrial
+from trialtwin.models import HistoricalTrial, Protocol
 from trialtwin.normalize import registry_display_name
 
 LIVE_SOURCE = "LIVE AMASS"
 DEMO_SOURCE = "LOCAL DEMO DATA"
+
+# Bump APP_STATE_VERSION after session-owned Protocol / widget schema changes.
+# Bump DATA_CACHE_VERSION after HistoricalTrial field migrations so Streamlit
+# cache_data cannot serve pre-migration objects (the target→intervention crash).
+APP_STATE_VERSION = 2
+DATA_CACHE_VERSION = "historical-trials-v2-intervention"
+STATE_VERSION_KEY = "_trialtwin_state_version"
+
+OWNED_SESSION_KEYS = frozenset(
+    {
+        "scenario_a",
+        "matches_requested",
+        "demo_pending",
+        "apply_demo",
+        "capture_scenario_a",
+        "protocol_target",
+        "protocol_intervention",
+        "protocol_stage",
+        "protocol_biomarker",
+        "protocol_duration",
+        "protocol_endpoint",
+        "protocol_n",
+        "current_mode",
+    }
+)
+
+LOCKED_DISEASE = "Alzheimer's disease"
+LOCKED_PHASE = "Phase III"
+
+DEMO_PROTOCOL_A = Protocol(
+    disease=LOCKED_DISEASE,
+    phase=LOCKED_PHASE,
+    intervention="amyloid-beta",
+    disease_stage="Early",
+    biomarker_strategy=True,
+    sample_size=1200,
+    duration_months=18,
+    primary_endpoint="CDR-SB",
+)
+
+DEMO_PROTOCOL_B = Protocol(
+    disease=LOCKED_DISEASE,
+    phase=LOCKED_PHASE,
+    intervention="amyloid-beta",
+    disease_stage="Early",
+    biomarker_strategy=False,
+    sample_size=1200,
+    duration_months=18,
+    primary_endpoint="CDR-SB",
+)
 
 FEATURE_LABEL = {
     "intervention": "Intervention",
@@ -28,6 +81,23 @@ PARAM_TITLES = {
 }
 
 
+def migrate_owned_session_state(
+    state: MutableMapping[str, Any],
+    current_version: int = APP_STATE_VERSION,
+) -> bool:
+    """Clear TrialTwin-owned keys when the schema version changes.
+
+    Does not delete Streamlit-internal keys. Returns True if a migration ran.
+    """
+    if state.get(STATE_VERSION_KEY) == current_version:
+        return False
+    for key in list(state.keys()):
+        if key in OWNED_SESSION_KEYS:
+            del state[key]
+    state[STATE_VERSION_KEY] = current_version
+    return True
+
+
 def source_is_live(source: str) -> bool:
     return source == LIVE_SOURCE
 
@@ -40,7 +110,7 @@ def should_show_demo_outcomes(source: str) -> bool:
 def source_badge(source: str) -> tuple[str, str]:
     if source_is_live(source):
         return "AMASS TRIALCORE", "blue"
-    return "LOCAL SYNTHETIC DATA", "gray"
+    return "LOCAL SYNTHETIC DEMO", "gray"
 
 
 def evidence_source_label(source: str) -> str:
@@ -60,14 +130,14 @@ def ranking_against_caption(n: int) -> str:
 def coverage_line(result: SimilarityResult) -> str:
     percent = result.comparison_coverage * 100.0
     return (
-        f"Comparison coverage: {percent:.0f}% · "
+        f"{percent:.0f}% · "
         f"{result.comparable_feature_count}/{result.total_feature_count} features available"
     )
 
 
 def low_coverage_warning(result: SimilarityResult) -> str | None:
     if is_low_coverage(result.comparison_coverage, LOW_COVERAGE_THRESHOLD):
-        return "Low comparison coverage — interpret this similarity cautiously."
+        return "Similarity is based on limited comparable data."
     return None
 
 

@@ -1,29 +1,53 @@
-# Capture a TrialTwin demo GIF
+# Capture the TrialTwin demo GIF
+
+Recommended recording: 8–15 seconds.
+
+Use **Demo scenario** because it is deterministic and does not need Amass.
 
 Target path: `docs/assets/trialtwin-demo.gif`
 
-Target duration: 8–15 seconds.
-
 Do not generate a fake UI image. Record the real running app.
 
-## Suggested flow
+## Exact flow
 
-1. Run:
-   `streamlit run app.py`
-2. Show the hypothetical protocol.
-3. Click **Find historical matches**.
-4. Show historical similarity + comparison coverage.
-5. Expand **Why this match?**
-6. Expand **Evidence**.
-7. Change one protocol parameter.
-8. Show the historical neighborhood rerank.
+1. Start the app: `streamlit run app.py`
+2. Open the app in the browser.
+3. Ensure the TrialTwin title is visible.
+4. Click **Demo scenario**.
+5. Show historical match cards, similarity, and coverage.
+6. Open **Why this match?**
+7. Close it if necessary.
+8. Show the preset what-if change (biomarker Required → Not required).
+9. Show **historical neighborhood changed**.
+10. Stop recording.
 
-## Capture (macOS)
+Do not show the terminal, API keys, desktop clutter, Streamlit errors, long loading delays, or unrelated tabs.
 
-QuickTime Player → File → New Screen Recording, crop to the browser window, export a short clip, then:
+## macOS recording
+
+QuickTime Player → File → New Screen Recording.
+
+Record only the browser region.
+
+Save as `trialtwin-demo.mov` in the repo root.
 
 ```bash
-ffmpeg -i capture.mov -vf "fps=10,scale=960:-1:flags=lanczos" -loop 0 docs/assets/trialtwin-demo.gif
+brew install ffmpeg   # if ffmpeg is missing
+
+ffmpeg -i trialtwin-demo.mov \
+  -vf "fps=10,scale=1000:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" \
+  -loop 0 \
+  docs/assets/trialtwin-demo.gif
 ```
 
-Keep the file reasonably small. After the GIF exists, it can replace the hero screenshot in `README.md`.
+If the GIF is too large, use `fps=8` and `scale=850:-1`.
+
+```bash
+ls -lh docs/assets/trialtwin-demo.gif
+
+git add docs/assets/trialtwin-demo.gif README.md
+git commit -m "Add TrialTwin demo GIF"
+git push
+```
+
+After the GIF exists, use it near the top of `README.md` in place of the hero screenshot.

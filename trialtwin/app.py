@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import sys
-from dataclasses import replace
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -21,6 +20,10 @@ from trialtwin.engine import (
 )
 from trialtwin.models import HistoricalTrial, Protocol
 from trialtwin.presentation import (
+    DATA_CACHE_VERSION,
+    DEMO_PROTOCOL_A,
+    DEMO_PROTOCOL_B,
+    DEMO_SOURCE,
     FEATURE_LABEL,
     PARAM_TITLES,
     candidate_set_caption,
@@ -29,8 +32,8 @@ from trialtwin.presentation import (
     format_why_value,
     intervention_choices,
     low_coverage_warning,
+    migrate_owned_session_state,
     provenance_rows,
-    ranking_against_caption,
     should_show_demo_outcomes,
     source_badge,
     source_is_live,
@@ -78,7 +81,12 @@ def display_value(value: object) -> str:
 
 
 @st.cache_data(ttl="1h", max_entries=4, show_spinner="Retrieving historical trials...")
-def load_cached_historical_set(use_live: bool) -> tuple[tuple[HistoricalTrial, ...], str, str]:
+def load_cached_historical_set(
+    use_live: bool,
+    schema_version: str,
+) -> tuple[tuple[HistoricalTrial, ...], str, str]:
+    """schema_version is unused internally; it is part of the Streamlit cache key."""
+    _ = schema_version
     result = get_historical_trials(use_live=use_live)
     return tuple(result.trials), result.source, result.note
 
@@ -86,14 +94,28 @@ def load_cached_historical_set(use_live: bool) -> tuple[tuple[HistoricalTrial, .
 def load_trials_safely() -> tuple[tuple[HistoricalTrial, ...], str, str]:
     """Live load with fallback only for expected Amass access failures."""
     try:
-        return load_cached_historical_set(True)
+        return load_cached_historical_set(True, DATA_CACHE_VERSION)
     except AmassError:
         local = tuple(load_local_trials())
         return (
             local,
-            "LOCAL DEMO DATA",
+            DEMO_SOURCE,
             "Live retrieval failed. Showing synthetic demonstration records.",
         )
+
+
+def demo_scenario_bundle() -> tuple[
+    tuple[HistoricalTrial, ...], str, str, Protocol, Protocol
+]:
+    """Deterministic Demo scenario. Always local JSON; never calls Amass."""
+    trials = tuple(load_local_trials())
+    return (
+        trials,
+        DEMO_SOURCE,
+        "Synthetic demonstration records. Not live TrialCore.",
+        DEMO_PROTOCOL_A,
+        DEMO_PROTOCOL_B,
+    )
 
 
 def build_protocol(
@@ -163,44 +185,6 @@ def apply_protocol_to_widgets(protocol: Protocol) -> None:
     st.session_state.protocol_endpoint = protocol.primary_endpoint
     st.session_state.protocol_n = protocol.sample_size
     st.session_state.protocol_intervention = protocol.intervention
-
-
-def neighborhood_shift_score(protocol_a: Protocol, protocol_b: Protocol, trials: list[HistoricalTrial]) -> float:
-    comparison = compare_protocol_scenarios(protocol_a, protocol_b, trials, top_k=DISPLAY_TOP)
-    set_a = {item.trial_id for item in comparison.ranking_a[:DISPLAY_TOP]}
-    set_b = {item.trial_id for item in comparison.ranking_b[:DISPLAY_TOP]}
-    changed = len(set_a.symmetric_difference(set_b))
-    avg_a = sum(item.similarity_score for item in comparison.ranking_a[:DISPLAY_TOP]) / DISPLAY_TOP
-    avg_b = sum(item.similarity_score for item in comparison.ranking_b[:DISPLAY_TOP]) / DISPLAY_TOP
-    return changed * 10 + abs(avg_a - avg_b)
-
-
-def pick_demo_protocols(trials: list[HistoricalTrial], intervention: str) -> tuple[Protocol, Protocol]:
-    """Choose a one-parameter flip that actually moves the neighborhood."""
-    base = Protocol(
-        disease=LOCKED_DISEASE,
-        phase=LOCKED_PHASE,
-        intervention=intervention,
-        disease_stage="Early",
-        biomarker_strategy=True,
-        sample_size=1200,
-        duration_months=18,
-        primary_endpoint="CDR-SB",
-    )
-    candidates = [
-        replace(base, biomarker_strategy=False),
-        replace(base, duration_months=36),
-        replace(base, disease_stage="Late"),
-        replace(base, primary_endpoint="ADAS-Cog"),
-    ]
-    best_b = candidates[0]
-    best_score = -1.0
-    for candidate in candidates:
-        score = neighborhood_shift_score(base, candidate, trials)
-        if score > best_score:
-            best_score = score
-            best_b = candidate
-    return base, best_b
 
 
 def before_after_chart(ranking_a, ranking_b) -> go.Figure:
@@ -318,7 +302,8 @@ def render_rank_list(results) -> None:
     for result in results[:DISPLAY_TOP]:
         st.markdown(
             f"**{short_label(result)}**  \n"
-            f"{result.similarity_score * 100:.1f}%"
+            f"{result.similarity_score * 100:.1f}% similarity · "
+            f"{result.comparison_coverage * 100:.0f}% coverage"
         )
 
 
@@ -326,6 +311,7 @@ def render_match_card(
     result, trial_by_id: dict[str, HistoricalTrial], source: str, rank: int
 ) -> None:
     rank_color = "violet" if rank == 1 else "blue" if rank == 2 else "gray"
+    warning = low_coverage_warning(result)
     with st.container(border=True):
         title_col, score_col = st.columns([3.2, 1.2], vertical_alignment="center")
         with title_col:
@@ -336,15 +322,15 @@ def render_match_card(
                     result.historical_outcome_class, ("UNKNOWN", "gray")
                 )
                 st.badge(f"Demo · {outcome_text}", color=outcome_color)
-            if low_coverage_warning(result):
+            if warning:
                 st.badge("LOW COVERAGE", color="orange")
         with score_col:
             st.metric("Historical similarity", f"{result.similarity_score * 100:.1f}%")
-            st.caption(coverage_line(result))
-        st.progress(min(max(result.similarity_score, 0.0), 1.0))
-        warning = low_coverage_warning(result)
+            st.metric("Comparison coverage", coverage_line(result))
         if warning:
             st.caption(warning)
+        else:
+            st.progress(min(max(result.similarity_score, 0.0), 1.0))
         with st.expander("Why this match?", expanded=rank == 1):
             render_why(result)
         trial = trial_by_id.get(result.trial_id)
@@ -368,25 +354,35 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
         set_a = {item.trial_id for item in comparison.ranking_a[:DISPLAY_TOP]}
         set_b = {item.trial_id for item in comparison.ranking_b[:DISPLAY_TOP]}
         changed_count = len(set_a - set_b)
-        avg_a = sum(item.similarity_score for item in comparison.ranking_a[:DISPLAY_TOP]) / max(len(comparison.ranking_a[:DISPLAY_TOP]), 1)
-        avg_b = sum(item.similarity_score for item in comparison.ranking_b[:DISPLAY_TOP]) / max(len(comparison.ranking_b[:DISPLAY_TOP]), 1)
+        slice_a = comparison.ranking_a[:DISPLAY_TOP]
+        slice_b = comparison.ranking_b[:DISPLAY_TOP]
+        denom_a = max(len(slice_a), 1)
+        denom_b = max(len(slice_b), 1)
+        avg_sim_a = sum(item.similarity_score for item in slice_a) / denom_a
+        avg_sim_b = sum(item.similarity_score for item in slice_b) / denom_b
+        avg_cov_a = sum(item.comparison_coverage for item in slice_a) / denom_a
+        avg_cov_b = sum(item.comparison_coverage for item in slice_b) / denom_b
         top_changed = comparison.ranking_a[0].trial_id != comparison.ranking_b[0].trial_id
 
         for title, before, after in changes:
             st.markdown(f":violet-background[**{title}**]  {before}  →  :blue[**{after}**]")
 
         st.subheader("Historical neighborhood changed")
-        metric_cols = st.columns(3)
-        metric_cols[0].metric(f"Top {DISPLAY_TOP} neighbors changed", f"{changed_count} of {DISPLAY_TOP}")
-        metric_cols[1].metric("Top match changed", "Yes" if top_changed else "No")
-        metric_cols[2].metric(
-            "Average similarity",
-            f"{avg_b * 100:.1f}%",
-            delta=f"{(avg_b - avg_a) * 100:+.1f} points",
-            delta_color="off",
+        metric_cols = st.columns(2)
+        metric_cols[0].markdown(
+            f"**Before**  \n"
+            f"Top neighborhood similarity: {avg_sim_a * 100:.0f}%  \n"
+            f"Average coverage: {avg_cov_a * 100:.0f}%"
+        )
+        metric_cols[1].markdown(
+            f"**After**  \n"
+            f"Top neighborhood similarity: {avg_sim_b * 100:.0f}%  \n"
+            f"Average coverage: {avg_cov_b * 100:.0f}%"
         )
         st.caption(
-            "Changing this protocol parameter changed the historical trials most similar to your design."
+            f"Top {DISPLAY_TOP} neighbors changed: {changed_count} of {DISPLAY_TOP}. "
+            f"Top match changed: {'yes' if top_changed else 'no'}. "
+            "These are neighborhood changes, not improvements."
         )
 
         before_col, after_col = st.columns(2)
@@ -398,7 +394,7 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
             render_rank_list(comparison.ranking_b)
 
         st.plotly_chart(before_after_chart(comparison.ranking_a, comparison.ranking_b), config={"displayModeBar": False})
-        st.caption("Bars are historical similarity only (purple = before, cyan = after). Not a clinical outcome.")
+        st.caption("Bars are historical similarity only (purple = before, cyan = after).")
 
         entered = comparison.top_matches_only_in_b
         left = comparison.top_matches_only_in_a
@@ -420,9 +416,11 @@ def main() -> None:
         layout="wide",
         initial_sidebar_state="collapsed",
     )
+    migrate_owned_session_state(st.session_state)
     st.session_state.setdefault("matches_requested", False)
     st.session_state.setdefault("scenario_a", None)
     st.session_state.setdefault("demo_pending", False)
+    st.session_state.setdefault("current_mode", "live")
     st.session_state.setdefault("protocol_stage", "Early")
     st.session_state.setdefault("protocol_biomarker", "Required")
     st.session_state.setdefault("protocol_duration", 18)
@@ -430,6 +428,7 @@ def main() -> None:
     st.session_state.setdefault("protocol_n", 1200)
 
     if st.session_state.pop("apply_demo", False):
+        st.session_state.current_mode = "demo"
         st.session_state.matches_requested = True
         st.session_state.demo_pending = True
 
@@ -437,15 +436,14 @@ def main() -> None:
     source = ""
     note = ""
     if st.session_state.matches_requested:
-        cached_trials, source, note = load_trials_safely()
-
-    if st.session_state.demo_pending and cached_trials is not None:
-        options = intervention_choices(list(cached_trials)) or ["amyloid-beta"]
-        demo_intervention = "amyloid-beta" if "amyloid-beta" in options else options[0]
-        protocol_a, protocol_b = pick_demo_protocols(list(cached_trials), demo_intervention)
-        st.session_state.scenario_a = protocol_a
-        apply_protocol_to_widgets(protocol_b)
-        st.session_state.demo_pending = False
+        if st.session_state.get("current_mode") == "demo":
+            cached_trials, source, note, protocol_a_demo, protocol_b_demo = demo_scenario_bundle()
+            if st.session_state.demo_pending:
+                st.session_state.scenario_a = protocol_a_demo
+                apply_protocol_to_widgets(protocol_b_demo)
+                st.session_state.demo_pending = False
+        else:
+            cached_trials, source, note = load_trials_safely()
 
     st.html(
         """
@@ -541,6 +539,7 @@ def main() -> None:
             find_col, demo_col = st.columns(2)
             with find_col:
                 if st.button("Find historical matches", type="primary", icon=":material/search:", width="stretch"):
+                    st.session_state.current_mode = "live"
                     st.session_state.matches_requested = True
                     st.session_state.capture_scenario_a = True
                     st.rerun()
@@ -566,18 +565,13 @@ def main() -> None:
             source_placeholder.badge("SOURCE PENDING", color="gray")
             with st.container(border=True):
                 st.markdown("### Ready when you are")
-                st.markdown("Find historical matches to load evidence, then change **one** design choice.")
-                st.caption("Historical similarity is resemblance among comparable protocol features, not a probability of success.")
+                st.markdown("Find historical matches for live TrialCore, or **Demo scenario** for a local synthetic walkthrough.")
             return
 
         trials = cached_trials
         badge_label, badge_color = source_badge(source)
         source_placeholder.badge(badge_label, color=badge_color)
         st.caption(candidate_set_caption(len(trials)))
-        st.caption(ranking_against_caption(len(trials)))
-        st.caption(
-            "Protocol duration is compared only when a semantically equivalent historical duration is available."
-        )
         if note:
             st.caption(note)
         if not trials:
@@ -587,8 +581,7 @@ def main() -> None:
         ranked = rank_historical_trials(protocol, list(trials))
         trial_by_id = {trial.id: trial for trial in trials}
         st.caption(
-            "Similarity compares available protocol design features. "
-            "Coverage tells you how much comparable data was actually available."
+            "Similarity measures historical resemblance. Coverage shows how much comparable data was available."
         )
         for index, result in enumerate(ranked[:DISPLAY_TOP], start=1):
             render_match_card(result, trial_by_id, source, index)

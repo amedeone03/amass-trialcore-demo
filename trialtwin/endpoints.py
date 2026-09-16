@@ -28,16 +28,14 @@ def canonicalize_endpoint(value: str | None) -> str:
 
     compact = _compact(text)
 
+    # CDR-SB only when Sum of Boxes (or CDRSB) is present. Plain CDR / CDR global
+    # is a different instrument and must not be rewritten.
     if "cdrsb" in compact or "clinicaldementiaratingsumofboxes" in compact:
-        return "CDR-SB"
-    if compact in {"cdr", "clinicaldementiarating"}:
         return "CDR-SB"
 
     if "adas" in compact and "cog" in compact:
         return "ADAS-Cog"
     if "alzheimersdiseaseassessmentscalecognitive" in compact:
-        return "ADAS-Cog"
-    if compact in {"adascog", "adas"}:
         return "ADAS-Cog"
 
     if "mmse" in compact or "minimentalstate" in compact:
