@@ -17,7 +17,9 @@ TrialTwin is an interactive sandbox for comparing a hypothetical clinical-trial 
 </p>
 
 <p align="center">
-  <img src="docs/assets/trialtwin-dashboard.png" alt="TrialTwin: proposed protocol and closest historical matches" width="920">
+  <img src="docs/assets/trialtwin-demo.gif"
+       alt="TrialTwin demo: protocol design, match profile, and historical neighborhood shift"
+       width="920">
 </p>
 
 ## Why TrialTwin?
