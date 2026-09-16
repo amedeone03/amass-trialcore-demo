@@ -22,7 +22,7 @@
 </p>
 
 <p align="center">
-  <a href="https://share.streamlit.io/deploy?repository=amedeone03/amass-trialcore-demo&branch=main&mainModule=app.py">
+  <a href="https://amass-trialcore-demo-ict25jksoymqt4xkddl9fv.streamlit.app">
     <img alt="Open in Streamlit" src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg">
   </a>
 </p>
@@ -31,7 +31,9 @@
 
 ## Working demo
 
-**One-click (Streamlit Community Cloud):** [Deploy this repo](https://share.streamlit.io/deploy?repository=amedeone03/amass-trialcore-demo&branch=main&mainModule=app.py) — sign in with GitHub, keep `app.py` as the entry file, then click **Deploy**. The app runs on the bundled prototype data without an Amass key.
+**Live app:** [https://amass-trialcore-demo-ict25jksoymqt4xkddl9fv.streamlit.app](https://amass-trialcore-demo-ict25jksoymqt4xkddl9fv.streamlit.app)
+
+Click **Demo scenario**. The hosted app uses the bundled prototype set unless you add `AMASS_API_KEY` in Streamlit secrets.
 
 **On your machine:**
 
