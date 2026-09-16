@@ -205,6 +205,22 @@ class SimilarityEngineTests(unittest.TestCase):
             ],
         )
 
+    def test_outcome_class_does_not_change_similarity(self) -> None:
+        protocol = _protocol()
+        favorable = calculate_similarity(protocol, _trial(outcome_class="favorable"))
+        unfavorable = calculate_similarity(
+            protocol, _trial(id="T-B", outcome_class="unfavorable")
+        )
+        self.assertAlmostEqual(favorable.similarity_score, unfavorable.similarity_score)
+        self.assertEqual(favorable.historical_outcome_class, "favorable")
+        self.assertEqual(unfavorable.historical_outcome_class, "unfavorable")
+
+    def test_closer_duration_scores_higher(self) -> None:
+        protocol = _protocol(duration_months=18)
+        closer = calculate_similarity(protocol, _trial(id="NEAR", duration_months=12))
+        farther = calculate_similarity(protocol, _trial(id="FAR", duration_months=36))
+        self.assertGreater(closer.similarity_score, farther.similarity_score)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -233,7 +233,13 @@ def calculate_similarity(
     historical_trial: HistoricalTrial,
     config: SimilarityConfig | None = None,
 ) -> SimilarityResult:
-    """Compare one protocol with one historical trial and explain the score."""
+    """Compare protocol design fields with one historical trial.
+
+    The returned ``similarity_score`` is a weighted resemblance heuristic in
+    [0, 1]. Unknown/ambiguous fields are excluded from the weight denominator.
+    ``historical_outcome_class`` is attached for display only and is not used
+    in the score.
+    """
     cfg = config or DEFAULT_CONFIG
     raw: list[tuple[str, FeatureStatus, float, str, str, str]] = []
 

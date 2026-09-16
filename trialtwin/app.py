@@ -347,7 +347,7 @@ def render_match_card(
             st.markdown(f"**{result.trial_title}**")
             st.badge(outcome_text, color=outcome_color)
         with score_col:
-            st.metric("Similarity", f"{result.similarity_score * 100:.1f}%")
+            st.metric("Historical similarity", f"{result.similarity_score * 100:.1f}%")
         st.progress(min(max(result.similarity_score, 0.0), 1.0))
         with st.expander("Why this match?", expanded=rank == 1):
             render_why(result)
@@ -490,7 +490,7 @@ def main() -> None:
         <div class="tt-hero">
           <div class="tt-kicker">Amass TrialCore · prototype</div>
           <h1>TrialTwin</h1>
-          <p>Stress-test a proposed trial against historical evidence. Change one design choice and watch the neighborhood move.</p>
+          <p>Explore how a proposed trial compares with historical evidence. Change one design choice and watch the neighborhood move.</p>
         </div>
         """
     )
@@ -568,8 +568,8 @@ def main() -> None:
             source_placeholder.badge("SOURCE PENDING", color="gray")
             with st.container(border=True):
                 st.markdown("### Ready when you are")
-                st.markdown("Find historical matches to load live evidence, then change **one** design choice.")
-                st.caption("Similarity is resemblance only — not a clinical prediction.")
+                st.markdown("Find historical matches to load evidence, then change **one** design choice.")
+                st.caption("Historical similarity is a resemblance heuristic, not a probability of success or failure.")
             return
 
         trials = cached_trials
@@ -584,7 +584,7 @@ def main() -> None:
         ranked = rank_historical_trials(protocol, list(trials))
         summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
         trial_by_id = {trial.id: trial for trial in trials}
-        st.caption("Similarity is a transparent heuristic based on protocol features. It is not a clinical outcome prediction.")
+        st.caption("Historical similarity is a resemblance heuristic, not a probability of success or failure.")
         for index, result in enumerate(ranked[:DISPLAY_TOP], start=1):
             render_match_card(result, trial_by_id, source, index)
 

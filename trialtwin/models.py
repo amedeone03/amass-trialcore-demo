@@ -31,7 +31,7 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parent / "data" / "alzheimer_trials
 
 @dataclass
 class Protocol:
-    """Hypothetical protocol designed by the user for historical comparison."""
+    """Hypothetical protocol used only for historical design comparison."""
 
     disease: str = "Alzheimer's disease"
     phase: str = "Phase III"

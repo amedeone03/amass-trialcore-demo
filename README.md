@@ -1,12 +1,12 @@
-<p align="center">
-  <img src="docs/landing.png" alt="TrialTwin matching a protocol to historical Alzheimer's Phase III trials" width="920">
-</p>
+# TrialTwin
 
-<h1 align="center">TrialTwin</h1>
+### An evidence-driven historical sandbox for clinical-trial design
 
-<p align="center">
-  <strong>Stress-test a proposed Alzheimer's Phase III protocol against history.</strong>
-</p>
+🥈 **2nd Place** — AI in Life Sciences Hackathon @ DTU Skylab, Copenhagen — September 2026
+
+> Change your protocol, and see which historical trials it starts to resemble.
+
+TrialTwin lets a researcher define a hypothetical Alzheimer's Phase III protocol, compare it with historical studies, understand why specific trials are similar, and explore how the historical neighborhood changes when one design choice is modified. It does not predict success or recommend a protocol.
 
 <p align="center">
   <a href="https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/">
@@ -14,118 +14,258 @@
   </a>
 </p>
 
+---
+
+## Application screenshot
+
 <p align="center">
-  <img alt="2nd place" src="https://img.shields.io/badge/DTU%20Skylab-2nd%20place-7C3AED?style=flat-square">
-  <img alt="Python" src="https://img.shields.io/badge/python-3.10+-3776AB?style=flat-square&logo=python&logoColor=white">
-  <img alt="Amass" src="https://img.shields.io/badge/data-Amass%20TrialCore-06B6D4?style=flat-square">
+  <img src="docs/assets/trialtwin-dashboard.png" alt="TrialTwin: proposed protocol, closest historical neighbor, and Why this match?" width="920">
 </p>
 
 <p align="center">
-  <em>AI in Life Sciences</em> · DTU Skylab × Cursor × Amass · September 2026
+  <img src="docs/assets/trialtwin-what-if.png" alt="What-if: changing duration reranks the historical neighborhood" width="920">
 </p>
 
----
-
-## What this app is
-
-TrialTwin is a **historical protocol sandbox**. You describe a hypothetical Alzheimer's Phase III trial. The app finds past trials whose *designs* look most like yours, then lets you change one setting and see whether that set of lookalikes changes.
-
-It compares **protocols**, not patients and not drugs' efficacy.
-
-**The app is saying:**  
-*If you design a trial like this, these past trials look most like it.*
-
-**When you change a parameter, it is saying:**  
-*That change made your design look like a different set of past trials.*
-
-It is **not** saying the protocol will succeed, that a drug is better, or that 95% similarity means a 95% chance of working. The number is only how alike the designs are on the fields both sides actually have.
+Live app: [TrialTwin on Streamlit](https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/)
 
 ---
 
-## What you compare
+## The problem
 
-The same design fields on your hypothetical protocol and on each historical trial:
+Clinical-trial design often requires researchers to manually benchmark a proposed protocol against historical studies, comparing characteristics such as patient population, endpoint, duration, biomarker strategy, and sample size.
 
-| Field | Role |
-| --- | --- |
-| Disease and phase | Locked here to Alzheimer's · Phase III |
-| Disease stage | Early vs late |
-| Biomarker confirmation | Required or not |
-| Duration | Follow-up in months |
-| Primary endpoint | CDR-SB or ADAS-Cog |
-| Sample size | Planned enrollment |
-| Target | Intervention / target name |
+That process can require searching registries, reading protocols, and assembling comparisons by hand.
 
-Each field is **exact**, **similar** (numbers only), **different**, or **unknown**. Unknown values are left out of the score instead of being guessed.
-
-**Why compare them?** A protocol is a bundle of choices. The only way this prototype can “test” a choice is to ask: *if I set the knobs this way, which registered or completed trials look like that bundle?* That is the neighborhood. Changing one knob is useful only if you can see the neighborhood move.
+TrialTwin turns that historical benchmarking workflow into an interactive sandbox.
 
 ---
 
-## How to use it
+## How TrialTwin works
 
-1. Open the [live demo](https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/).
-2. Set the knobs on the left, or click **Demo scenario**.
-3. **Find historical matches** loads Alzheimer's Phase III records from [Amass TrialCore](https://amass.tech) when a key is available, otherwise a small labeled prototype set.
-4. Open **Why this match?** — that table *is* the score.
-5. Change **one** control. **What if?** shows who entered and left the top three.
+1. Design a hypothetical protocol (Alzheimer's disease · Phase III, plus stage, biomarker, duration, endpoint, sample size, target).
+2. Retrieve historical trials from Amass TrialCore, or load the local fallback set.
+3. Normalize records into comparable fields.
+4. Compute protocol similarity (design resemblance only).
+5. Rank the closest historical neighbors.
+6. Explain why they matched, feature by feature.
+7. Modify one protocol parameter.
+8. Recompute the neighborhood.
+9. Inspect the underlying evidence.
 
-<p align="center">
-  <img src="docs/what-if.png" alt="What-if: duration 18 to 36 months moves the neighborhood" width="920">
-</p>
+```mermaid
+flowchart TD
+    A[Proposed protocol] --> B[Historical trial data]
+    B --> C[Normalization]
+    C --> D[Similarity engine]
+    D --> E[Historical neighborhood]
+    E --> F[Why this match?]
+    F --> G[Evidence]
+    A --> H[Change protocol parameter]
+    H --> D
+```
 
 ---
 
-## How scoring works
+## Scientific scope and limitations
 
-The scorer in `trialtwin/engine.py` is a **weighted checklist**, not a learned model. It answers: *on the fields we can see, how much does this historical protocol look like yours?* The result is a number in 0–100%. It is **not** a probability that the trial succeeds.
+TrialTwin is a research/hackathon prototype.
 
-### 1. Compare each field
+It:
 
-| Field | Weight | How it scores |
+- provides historical protocol similarity
+- supports exploratory comparison
+- exposes evidence behind matches
+
+It does not:
+
+- predict trial success or failure
+- provide medical advice
+- recommend trial designs
+- establish causal relationships
+- replace clinical scientists or statisticians
+
+**The app is saying:** this proposed protocol resembles these historical trials according to the selected design characteristics.
+
+**It is not saying:** those historical outcomes will happen again, or that a feature caused a past trial to succeed.
+
+---
+
+## What does the similarity score mean?
+
+Implemented in `trialtwin/engine.py`. The score is a **historical design resemblance heuristic**. It is not probability of success, probability of failure, clinical risk, treatment efficacy, protocol quality, or causal evidence.
+
+`outcome_class` is **not** an input to the score. It is copied onto the result only so the UI can show a descriptive historical-outcome badge.
+
+### Fields and weights
+
+Weights sum to 1.00:
+
+| Field | Weight | Type |
 | --- | ---: | --- |
-| Disease stage | 20% | Exact match or 0 |
-| Biomarker confirmation | 20% | Exact match or 0 |
-| Disease | 15% | Exact match or 0 |
-| Primary endpoint | 15% | Exact match or 0 |
-| Phase | 10% | Exact match or 0 |
-| Duration | 10% | Partial: `max(0, 1 − \|your months − theirs\| / 18)` |
-| Sample size | 5% | Partial: `max(0, 1 − \|your N − theirs\| / 2000)` |
-| Target | 5% | Exact match or 0 |
+| Disease stage | 0.20 | Categorical |
+| Biomarker strategy | 0.20 | Categorical |
+| Disease | 0.15 | Categorical |
+| Primary endpoint | 0.15 | Categorical |
+| Phase | 0.10 | Categorical |
+| Duration (months) | 0.10 | Numeric (scale 18) |
+| Sample size | 0.05 | Numeric (scale 2000) |
+| Target | 0.05 | Categorical |
 
-Weights add to 100%. Categories are all-or-nothing. Numbers fade linearly: 18 vs 18 months is full credit; 18 vs 36 months is 0 duration credit.
+Disease and phase are scored like any other categorical field. In this prototype they are locked to Alzheimer's disease and Phase III on the proposed protocol, so they typically match every live TrialCore row in the default search.
 
-Each row is tagged **exact**, **similar** (numbers only), **different**, or **unknown**.
+### Categorical similarity
 
-### 2. Drop unknowns, then renormalize
+Exact match (case-insensitive strings, or equal booleans) → field score 1.  
+Mismatch → 0.
 
-If a field is missing on either side (`unknown`, empty, or `ambiguous: …`), it is **not guessed**. That weight is taken out of the denominator, and the remaining weights are scaled so they still sum to 1.
+Missing, empty, `"unknown"`, or `"ambiguous: …"` on either side → status **unknown**. That field is excluded from the denominator (not treated as a mismatch).
 
-Example: live TrialCore often has no stage and no biomarker (40% of the checklist). Those 40% are dropped. Disease + phase still match almost every Alzheimer's Phase III row, so they suddenly make up a large share of the score. That is why live matches can sit in the 85–97% band even when the drugs are unrelated.
+### Numeric similarity
 
-### 3. Add it up and rank
+`max(0, 1 − |protocol − historical| / scale)`
 
-For every historical trial:
+Duration scale = 18 months. Sample-size scale = 2000. Exact equality is a full match; a difference at least as large as the scale contributes 0.
 
-`similarity = sum( (weight / comparable_weights) × field_score )`
+### Aggregation
 
-Trials are sorted by that score, then by trial id. The UI shows the top three as the **historical neighborhood**. **What if?** runs the same ranking twice (before vs after one knob) and reports which neighbors moved.
+For comparable (non-unknown) fields:
 
-**Why this match?** is the honest view of the percentage: green checks are the weight you actually received; question marks did not enter the score.
+`similarity = Σ (weight_i / Σ comparable weights) × field_score_i`
+
+Unknown weights are dropped, then remaining weights are renormalized. Rank order is similarity descending, then `trial_id` ascending. Historical outcome labels do not enter this formula.
+
+On live TrialCore, stage and biomarker are often unknown, so about 40% of the checklist can drop out. Disease + phase then dominate, which is why live scores can look high even when interventions differ.
 
 ---
 
-## Run locally
+## What-if exploration
+
+A researcher changes one design choice—for example duration 18 → 36 months, or biomarker Required → Not required.
+
+TrialTwin recalculates similarity and reranks the same historical set.
+
+This does **not** mean the new protocol is better. It means the modified protocol resembles a **different historical evidence neighborhood**.
+
+---
+
+## Example (illustrative)
+
+Proposed protocol:
+
+- Disease: Alzheimer's disease
+- Phase: Phase III
+- Disease stage: Early
+- Biomarker strategy: Required
+- Duration: 18 months
+- Primary endpoint: CDR-SB
+- Sample size: 1,200
+
+Closest neighbors are the top-ranked historical designs for that feature vector (labels and percentages depend on the live TrialCore snapshot or the local mock set). Treat any on-screen titles as **that run's neighborhood**, not as a fixed published result.
+
+Changing one field (for example duration) can move Historical Trial A out of the top three and bring Historical Trial B in. That is neighborhood change, not improvement.
+
+---
+
+## Architecture
+
+```mermaid
+flowchart LR
+    A[Amass TrialCore] --> B[TrialTwin Python]
+    C[Local JSON fallback] --> B
+    B --> D[Streamlit UI]
+```
+
+| Piece | Role |
+| --- | --- |
+| Amass TrialCore | Historical clinical-trial records (live retrieval) |
+| TrialTwin (`engine`, `normalize`, `models`) | Normalization, similarity, ranking, explanation |
+| Streamlit | Interactive application |
+| Cursor | Development tool used during the hackathon; not part of runtime |
+
+---
+
+## Data provenance
+
+**Live mode.** When `AMASS_API_KEY` is set and TrialCore responds, records are fetched (`Alzheimer's disease`, `PHASE3`) and normalized. Missing fields stay unknown/`None`. Outcome class is always `unknown` because TrialCore does not provide a success/failure label. Empty live results are **not** replaced with demo rows.
+
+**Local / demo mode.** If live retrieval is not requested or Amass is unavailable, the app loads `trialtwin/data/alzheimer_trials.json`. Those records are **mock/synthetic**: titles and `why_stopped` are marked `[DEMO/MOCK]`. Their `outcome_class` values are sandbox labels only, not real trial results.
+
+---
+
+## Quick start
 
 ```bash
+git clone https://github.com/amedeone03/amass-trialcore-demo.git
+cd amass-trialcore-demo
+
+python3 -m venv .venv
+source .venv/bin/activate   # Windows: .venv\Scripts\activate
+
 pip install -r requirements.txt
+
+cp .env.example .env
+# AMASS_API_KEY=your_amass_key_here   # optional
+
 streamlit run app.py
 ```
 
-Optional: copy `.env.example` to `.env` and set `AMASS_API_KEY`. Without a key, the app uses `trialtwin/data/alzheimer_trials.json`.
+Open http://localhost:8501. **Find historical matches** uses live TrialCore when the key works; otherwise the mock JSON. **Demo scenario** applies a one-parameter flip so the neighborhood moves.
 
 ```bash
 python -m unittest discover -s trialtwin/tests -v
 ```
 
-Prototype — not medical software.
+---
+
+## Project structure
+
+```
+app.py                      Streamlit entry (calls trialtwin.app.main)
+requirements.txt
+.env.example
+trialtwin/
+  app.py                    UI
+  engine.py                 Similarity, ranking, what-if
+  models.py                 Protocol and HistoricalTrial
+  amass_client.py           TrialCore HTTP + local fallback
+  normalize.py              Amass JSON → HistoricalTrial
+  data/alzheimer_trials.json
+  tests/
+docs/assets/                Screenshots
+.github/workflows/tests.yml
+```
+
+---
+
+## Hackathon
+
+TrialTwin was built during the AI in Life Sciences Hackathon at DTU Skylab in Copenhagen in September 2026. The project placed 2nd.
+
+Built during the AI in Life Sciences Hackathon hosted at DTU Skylab with Cursor and Amass. That does not imply endorsement beyond hosting and tooling.
+
+---
+
+## Team
+
+- Amedeo Bozzoli — [GitHub](https://github.com/amedeone03)
+- Christian — TODO (GitHub profile)
+- Team member — TODO
+
+---
+
+## Roadmap
+
+- Expand beyond Alzheimer's disease
+- Validate similarity features with domain experts
+- Improve protocol normalization and evidence traceability
+- Evaluate similarity functions empirically
+- Support more trial-design dimensions
+- Richer historical-outcome display **where values are verified**
+
+Not in scope unless separately validated: predicting clinical success or automatically optimizing protocols.
+
+---
+
+## License
+
+This repository currently has **no explicit license**. Maintainers should choose one before wider reuse.
