@@ -2,25 +2,23 @@
 
 ### Historical benchmarking for clinical-trial design
 
-🥈 **2nd Place · 16 September 2026**  
-**AI in Life Sciences Hackathon · DTU Skylab × Cursor × Amass**  
-Copenhagen, Denmark
+🥈 **2nd Place at the AI in Life Sciences Hackathon**  
+**DTU Skylab × Cursor × Amass**  
+Copenhagen, Denmark · 16 September 2026
 
-<table align="center">
-  <tr>
-    <td align="center" width="180">
-      <img src="docs/assets/dtu-skylab-logo.png" alt="DTU Skylab" height="54">
-    </td>
-    <td align="center" width="30">×</td>
-    <td align="center" width="180">
-      <img src="docs/assets/cursor-logo.svg" alt="Cursor" height="56">
-    </td>
-    <td align="center" width="30">×</td>
-    <td align="center" width="180">
-      <img src="docs/assets/amass-logo.svg" alt="Amass" height="44">
-    </td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/assets/dtu-skylab-logo.png"
+       alt="DTU Skylab"
+       height="48">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/cursor-logo.svg"
+       alt="Cursor"
+       height="50">
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <img src="docs/assets/amass-logo.svg"
+       alt="Amass"
+       height="42">
+</p>
 
 > **Change your protocol. See which historical trials it starts to resemble.**
 
@@ -37,9 +35,6 @@ TrialTwin compares a hypothetical clinical-trial protocol with historical design
        alt="TrialTwin demo: protocol design, match profile, and historical neighborhood shift"
        width="920">
 </p>
-
-| 🥈 **2nd Place** | ⚡ **Built in one day** | 🧠 **Alzheimer's Phase III** | 🔬 **Historical benchmarking** |
-| :---: | :---: | :---: | :---: |
 
 ## ⚙️ How it works
 
@@ -69,8 +64,6 @@ Built for **Alzheimer's disease Phase III** protocols using disease stage, bioma
   <img alt="Streamlit" src="https://img.shields.io/badge/Streamlit-FF4B4B?style=flat&logo=streamlit&logoColor=white">
   <img alt="Plotly" src="https://img.shields.io/badge/Plotly-3F4F75?style=flat&logo=plotly&logoColor=white">
 </p>
-
-Historical records are normalized, compared, ranked, and explained by the TrialTwin matching pipeline.
 
 > Missing historical fields stay missing — they are not silently imputed into the similarity score.
 
