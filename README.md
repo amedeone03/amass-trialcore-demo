@@ -150,7 +150,7 @@ Cursor was used as an AI-assisted development environment, while Amass TrialCore
 
 ## Team
 
-- Amedeo Bozzoli — [GitHub](https://github.com/amedeone03)
+- Amedeo Bozzoli 
 - Christian Deluca
 - Marcos Cuervo Santos
 
