@@ -25,8 +25,8 @@ That one field swap is the strongest honest neighborhood movement on the bundled
 5. Pause briefly on historical match cards, similarity, and coverage (4–6 s).
 6. Open **Why this match?** to show the match fingerprint (6–8 s).
 7. Show the protocol change card: Biomarker confirmation **Required → Not required** (8–10 s).
-8. Show **Historical neighborhood shift** (rank-flow Before → After).
-9. Pause on **3 of 3 top historical neighbors changed** (13–15 s).
+8. Show **Historical neighborhood shift** and **3 of 3 top historical neighbors changed**.
+9. End on the rank-flow graph (10–14 s). Do not open **Explore evidence** or the scatter plot — the synthetic demo hides it because coverage does not vary.
 10. Stop recording.
 
 Do not show the terminal, API keys, desktop clutter, Streamlit errors, long loading delays, or unrelated tabs.

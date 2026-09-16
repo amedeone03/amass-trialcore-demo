@@ -16,7 +16,6 @@ from trialtwin.amass_client import AmassError, get_historical_trials, load_local
 from trialtwin.engine import (
     compare_protocol_scenarios,
     rank_historical_trials,
-    summarize_historical_neighborhood,
 )
 from trialtwin.models import HistoricalTrial, Protocol
 from trialtwin.presentation import (
@@ -27,7 +26,6 @@ from trialtwin.presentation import (
     FEATURE_LABEL,
     PARAM_TITLES,
     candidate_set_caption,
-    coverage_line,
     evidence_source_label,
     format_why_value,
     intervention_choices,
@@ -43,8 +41,8 @@ from trialtwin.visualization import (
     build_match_fingerprint,
     build_similarity_coverage_points,
     calculate_neighborhood_shift,
-    neighborhood_change_caption,
-    shorten_title,
+    concise_trial_label,
+    scatter_is_informative,
 )
 
 DISPLAY_TOP = 3
@@ -181,7 +179,13 @@ def describe_protocol_changes(protocol_a: Protocol, protocol_b: Protocol) -> lis
 
 def short_label(result) -> str:
     title = result.trial_title.strip() or result.trial_id
-    return shorten_title(title, 40)
+    return concise_trial_label(title)
+
+
+def _hex_rgba(hex_color: str, alpha: float) -> str:
+    value = hex_color.lstrip("#")
+    red, green, blue = int(value[0:2], 16), int(value[2:4], 16), int(value[4:6], 16)
+    return f"rgba({red},{green},{blue},{alpha})"
 
 
 def apply_protocol_to_widgets(protocol: Protocol) -> None:
@@ -206,6 +210,8 @@ def rank_shift_chart(shift: NeighborhoodShift) -> go.Figure:
         if row.rank_before is None or row.rank_after is None:
             continue
         dash = "dash" if row.movement != "stayed" else "solid"
+        alpha = 1.0 if row.dominant else 0.28
+        color = _hex_rgba(row.color, alpha)
         sim_a = "—" if row.similarity_before is None else f"{row.similarity_before * 100:.1f}%"
         sim_b = "—" if row.similarity_after is None else f"{row.similarity_after * 100:.1f}%"
         cov_a = "—" if row.coverage_before is None else f"{row.coverage_before * 100:.0f}%"
@@ -214,13 +220,10 @@ def rank_shift_chart(shift: NeighborhoodShift) -> go.Figure:
             go.Scatter(
                 x=["Before", "After"],
                 y=[row.rank_before, row.rank_after],
-                mode="lines+markers+text",
+                mode="lines+markers",
                 name=row.short_title,
-                line=dict(color=row.color, width=3, dash=dash),
-                marker=dict(size=11, color=row.color),
-                text=["", row.short_title],
-                textposition="middle right",
-                textfont=dict(color="#E5E7EB", size=11),
+                line=dict(color=color, width=3.4 if row.dominant else 1.6, dash=dash),
+                marker=dict(size=12 if row.dominant else 7, color=color),
                 hovertemplate=(
                     f"{row.title}<br>"
                     f"Rank {row.rank_before} → {row.rank_after}<br>"
@@ -231,13 +234,19 @@ def rank_shift_chart(shift: NeighborhoodShift) -> go.Figure:
             )
         )
     fig.update_layout(
-        title=dict(text="Historical neighborhood shift", font=dict(size=16, color="#E5E7EB")),
         paper_bgcolor="rgba(0,0,0,0)",
         plot_bgcolor="rgba(8,12,24,0.55)",
         font=dict(color="#E5E7EB", size=12, family="IBM Plex Sans"),
-        height=max(320, 56 * max(len(shift.rows), 1) + 80),
-        margin=dict(l=48, r=220, t=48, b=40),
-        showlegend=False,
+        height=max(280, 46 * max(len(shift.rows), 1) + 56),
+        margin=dict(l=40, r=24, t=36, b=28),
+        showlegend=True,
+        legend=dict(
+            orientation="h",
+            y=1.12,
+            x=0,
+            bgcolor="rgba(0,0,0,0)",
+            font=dict(size=11, color="#E5E7EB"),
+        ),
         transition=dict(duration=400),
         xaxis=dict(type="category", tickfont=dict(size=13)),
         yaxis=dict(
@@ -357,8 +366,8 @@ def render_evidence(trial: HistoricalTrial, source: str) -> None:
 
     if should_show_demo_outcomes(source):
         outcome = OUTCOME_BADGE.get(trial.outcome_class, ("UNKNOWN", "gray"))[0]
-        st.markdown(f"**Demo outcome labels**  \n{outcome}")
-        st.caption("Synthetic demonstration labels. Not inferred from a live registry status.")
+        st.markdown(f"**Synthetic demo metadata**  \nOutcome label: {outcome}")
+        st.caption("Synthetic demonstration metadata. Not a live TrialCore classification or prediction.")
     else:
         st.caption(
             "Validated historical outcome classification is not available from the current TrialCore record."
@@ -378,20 +387,18 @@ def render_match_card(
     rank_color = "violet" if rank == 1 else "blue" if rank == 2 else "gray"
     warning = low_coverage_warning(result)
     with st.container(border=True):
-        title_col, score_col = st.columns([3.2, 1.2], vertical_alignment="center")
+        title_col, score_col = st.columns([2.6, 1.5], vertical_alignment="center")
         with title_col:
             st.badge(f"Match {rank}", color=rank_color)
             st.markdown(f"**{result.trial_title}**")
-            if should_show_demo_outcomes(source):
-                outcome_text, outcome_color = OUTCOME_BADGE.get(
-                    result.historical_outcome_class, ("UNKNOWN", "gray")
-                )
-                st.badge(f"Demo · {outcome_text}", color=outcome_color)
             if warning:
                 st.badge("LOW COVERAGE", color="orange")
         with score_col:
             st.metric("Historical similarity", f"{result.similarity_score * 100:.1f}%")
-            st.metric("Comparison coverage", coverage_line(result))
+            st.metric("Comparison coverage", f"{result.comparison_coverage * 100:.0f}%")
+            st.caption(
+                f"{result.comparable_feature_count} / {result.total_feature_count} features available"
+            )
         if warning:
             st.caption(warning)
         else:
@@ -427,46 +434,53 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
             for item in list(comparison.ranking_a) + list(comparison.ranking_b)
         }
 
-        st.info("Protocol changed — historical neighborhood recomputed.")
+        st.caption("Protocol changed — historical neighborhood recomputed.")
         with st.container(border=True):
             st.markdown("**One design decision changed**")
             if not changes:
                 st.markdown("No labeled protocol fields differ.")
             for title, before, after in changes:
-                st.markdown(f"### {title}")
+                st.markdown(f"**{title}**")
                 st.markdown(f"## {before}  →  {after}")
 
         st.subheader("Historical neighborhood shift")
         st.markdown(f"# {shift.changed_count} of {shift.top_k}")
         st.markdown("**top historical neighbors changed**")
-        st.caption(
-            f"{neighborhood_change_caption(shift)}. "
-            f"Top match changed: {'yes' if shift.top_match_changed else 'no'}. "
-            "These are neighborhood changes, not improvements."
-        )
-
-        context = st.container(horizontal=True)
-        with context:
-            st.markdown(
-                f"**Before**  \nAverage similarity: {shift.avg_similarity_before * 100:.0f}%  \n"
-                f"Average coverage: {shift.avg_coverage_before * 100:.0f}%"
-            )
-            st.markdown(
-                f"**After**  \nAverage similarity: {shift.avg_similarity_after * 100:.0f}%  \n"
-                f"Average coverage: {shift.avg_coverage_after * 100:.0f}%"
-            )
+        st.caption(f"Top match changed: {'Yes' if shift.top_match_changed else 'No'}")
+        st.caption("These are neighborhood changes, not improvements.")
 
         if not shift.can_draw:
             st.caption(shift.empty_reason)
         else:
             st.plotly_chart(rank_shift_chart(shift), config={"displayModeBar": False})
 
-        badge_row = st.container(horizontal=True)
-        with badge_row:
+        moved_in_col, moved_out_col = st.columns(2)
+        with moved_in_col:
+            st.caption("MOVED IN")
+            if not shift.moved_in_ids:
+                st.markdown("None")
             for trial_id in shift.moved_in_ids:
-                st.badge(f"Moved in · {labels.get(trial_id, trial_id)}", color="blue")
+                st.markdown(f"**{labels.get(trial_id, trial_id)} trial**")
+        with moved_out_col:
+            st.caption("MOVED OUT")
+            if not shift.moved_out_ids:
+                st.markdown("None")
             for trial_id in shift.moved_out_ids:
-                st.badge(f"Moved out · {labels.get(trial_id, trial_id)}", color="gray")
+                st.markdown(f"**{labels.get(trial_id, trial_id)} trial**")
+
+        with st.expander("Top-3 mean resemblance"):
+            st.caption("Secondary context. Not an improvement score.")
+            mean_cols = st.columns(2)
+            mean_cols[0].markdown(
+                f"**Before**  \n"
+                f"Top-3 mean historical similarity: {shift.avg_similarity_before * 100:.0f}%  \n"
+                f"Top-3 mean comparison coverage: {shift.avg_coverage_before * 100:.0f}%"
+            )
+            mean_cols[1].markdown(
+                f"**After**  \n"
+                f"Top-3 mean historical similarity: {shift.avg_similarity_after * 100:.0f}%  \n"
+                f"Top-3 mean comparison coverage: {shift.avg_coverage_after * 100:.0f}%"
+            )
 
 
 def main() -> None:
@@ -516,7 +530,7 @@ def main() -> None:
             radial-gradient(900px 380px at 96% 0%, rgba(6,182,212,.18), transparent 52%),
             #070b16;
         }
-        .block-container { padding-top: 1rem; padding-bottom: 2.4rem; max-width: 1440px; }
+        .block-container { padding-top: 0.55rem; padding-bottom: 1.2rem; max-width: 1440px; }
         div[data-testid="stVerticalBlockBorderWrapper"] {
           background: linear-gradient(180deg, rgba(17,24,39,.94), rgba(11,16,32,.92));
           border: 1px solid rgba(124,58,237,.22) !important;
@@ -524,7 +538,7 @@ def main() -> None:
         }
         .tt-hero h1 {
           margin: 0;
-          font-size: 2.35rem;
+          font-size: 2.05rem;
           letter-spacing: -0.04em;
           background: linear-gradient(90deg, #F5F3FF 10%, #A78BFA 55%, #22D3EE 100%);
           -webkit-background-clip: text;
@@ -540,7 +554,12 @@ def main() -> None:
           text-transform: uppercase;
         }
         div[data-testid="stProgressBar"] > div { background: linear-gradient(90deg, #7C3AED, #06B6D4); }
-        .tt-fp { display: flex; flex-direction: column; gap: 0.45rem; margin: 0.35rem 0 0.6rem; }
+        div[data-testid="stMetricValue"] {
+          overflow: visible !important;
+          text-overflow: clip !important;
+          white-space: nowrap;
+        }
+        .tt-fp { display: flex; flex-direction: column; gap: 0.32rem; margin: 0.2rem 0 0.35rem; }
         .tt-fp-row { display: grid; grid-template-columns: 7.2rem minmax(4rem,1fr) 5.2rem; gap: 0.7rem; align-items: center; }
         .tt-fp-label { color: #D1D5DB; font-size: 0.86rem; }
         .tt-fp-track { height: 0.55rem; border-radius: 999px; background: rgba(148,163,184,.22); overflow: hidden; }
@@ -646,36 +665,17 @@ def main() -> None:
 
         ranked = rank_historical_trials(protocol, list(trials))
         trial_by_id = {trial.id: trial for trial in trials}
-        st.caption(
-            "Similarity measures historical resemblance. Coverage shows how much comparable data was available."
-        )
         for index, result in enumerate(ranked[:DISPLAY_TOP], start=1):
             render_match_card(result, trial_by_id, source, index)
-
-        if should_show_demo_outcomes(source):
-            summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
-            with st.expander("Demo outcome labels"):
-                st.caption("Synthetic demonstration counts. Not a live TrialCore classification.")
-                c1, c2, c3, c4 = st.columns(4)
-                c1.metric("Favorable", summary.favorable)
-                c2.metric("Unfavorable", summary.unfavorable)
-                c3.metric("Unclear", summary.unclear)
-                c4.metric("Unknown", summary.unknown)
-        else:
-            st.caption(
-                "Validated historical outcome classification is not available from the current TrialCore record."
-            )
 
     protocol_a = st.session_state.scenario_a or protocol
     st.session_state.scenario_a = protocol_a
     render_what_if(protocol_a, protocol, list(trials))
     points = build_similarity_coverage_points(ranked, list(trials), top_k=DISPLAY_TOP)
-    with st.expander("Explore evidence"):
-        if points:
+    if scatter_is_informative(points):
+        with st.expander("Explore evidence"):
             st.plotly_chart(coverage_scatter_chart(points), config={"displayModeBar": False})
             st.caption("Similarity and comparison coverage are separate quantities.")
-        else:
-            st.caption("No candidates to plot.")
 
 
 if __name__ == "__main__":

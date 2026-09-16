@@ -50,6 +50,7 @@ class RankShiftRow:
     coverage_after: float | None
     movement: Movement
     color: str
+    dominant: bool
 
 
 @dataclass(frozen=True)
@@ -88,15 +89,39 @@ class CoveragePoint:
     is_top: bool
 
 
-def shorten_title(title: str, limit: int = 36) -> str:
+def _strip_demo_prefix(title: str) -> str:
     text = (title or "").strip()
     if text.upper().startswith("[DEMO/MOCK]"):
-        text = text[11:].strip()
+        return text[11:].strip()
+    return text
+
+
+def shorten_title(title: str, limit: int = 36) -> str:
+    text = _strip_demo_prefix(title)
     if not text:
         return ""
     if len(text) <= limit:
         return text
     return text[: max(limit - 3, 1)] + "..."
+
+
+def concise_trial_label(title: str) -> str:
+    """Chart/badge label only. Does not change stored trial titles."""
+    text = _strip_demo_prefix(title)
+    lowered = text.casefold()
+    rules = (
+        ("tau-directed", "Tau-directed"),
+        ("bace", "BACE inhibitor"),
+        ("prodromal", "Prodromal amyloid"),
+        ("early alzheimer", "Early anti-amyloid"),
+        ("pet plus csf", "PET/CSF anti-amyloid"),
+        ("mild-to-moderate", "Mild-to-moderate anti-amyloid"),
+        ("moderate alzheimer", "Moderate symptomatic"),
+    )
+    for needle, label in rules:
+        if needle in lowered:
+            return label
+    return shorten_title(text, 28)
 
 
 def _rank_map(ranking: list[SimilarityResult] | tuple[SimilarityResult, ...]) -> dict[str, int]:
@@ -162,6 +187,7 @@ def calculate_neighborhood_shift(
 
     set_a = {item.trial_id for item in ranking_a[:top_k]}
     set_b = {item.trial_id for item in ranking_b[:top_k]}
+    focal = set_a | set_b
     moved_out = tuple(sorted(set_a - set_b))
     moved_in = tuple(sorted(set_b - set_a))
     changed_count = len(set_a - set_b)
@@ -191,7 +217,7 @@ def calculate_neighborhood_shift(
             RankShiftRow(
                 trial_id=trial_id,
                 title=result.trial_title,
-                short_title=shorten_title(result.trial_title),
+                short_title=concise_trial_label(result.trial_title),
                 rank_before=ranks_a.get(trial_id),
                 rank_after=ranks_b.get(trial_id),
                 similarity_before=by_a[trial_id].similarity_score if trial_id in by_a else None,
@@ -200,6 +226,7 @@ def calculate_neighborhood_shift(
                 coverage_after=by_b[trial_id].comparison_coverage if trial_id in by_b else None,
                 movement=movement,
                 color=SHIFT_LINE_COLORS[index % len(SHIFT_LINE_COLORS)],
+                dominant=trial_id in focal,
             )
         )
 
@@ -262,6 +289,14 @@ def build_similarity_coverage_points(
             )
         )
     return tuple(points)
+
+
+def scatter_is_informative(points: tuple[CoveragePoint, ...] | list[CoveragePoint]) -> bool:
+    """Hide a flat coverage row; high similarity is not enough to justify the chart."""
+    if len(points) < 2:
+        return False
+    coverages = {round(point.coverage_pct, 1) for point in points}
+    return len(coverages) >= 2
 
 
 def neighborhood_change_caption(shift: NeighborhoodShift) -> str:

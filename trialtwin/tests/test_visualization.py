@@ -10,10 +10,13 @@ from trialtwin.engine import calculate_similarity, rank_historical_trials
 from trialtwin.models import HistoricalTrial, Protocol
 from trialtwin.presentation import DEMO_PROTOCOL_A, DEMO_PROTOCOL_B
 from trialtwin.visualization import (
+    CoveragePoint,
     build_match_fingerprint,
     build_similarity_coverage_points,
     calculate_neighborhood_shift,
+    concise_trial_label,
     neighborhood_change_caption,
+    scatter_is_informative,
     shorten_title,
 )
 
@@ -53,6 +56,32 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertLessEqual(len(shorten_title("x" * 80)), 36)
         self.assertTrue(shorten_title("[DEMO/MOCK] Mild Alzheimer's BACE-inhibitor Phase III").startswith("Mild"))
 
+    def test_concise_demo_labels(self) -> None:
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Early Alzheimer's anti-amyloid Phase III with PET enrichment"),
+            "Early anti-amyloid",
+        )
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Mild-to-moderate Alzheimer's tau-directed Phase III without enrichment"),
+            "Tau-directed",
+        )
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Mild Alzheimer's BACE-inhibitor Phase III without biomarker selection"),
+            "BACE inhibitor",
+        )
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Prodromal Alzheimer's amyloid Phase III with CSF enrichment"),
+            "Prodromal amyloid",
+        )
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Moderate Alzheimer's symptomatic Phase III without enrichment"),
+            "Moderate symptomatic",
+        )
+        self.assertEqual(
+            concise_trial_label("[DEMO/MOCK] Mild-to-moderate Alzheimer's anti-amyloid Phase III with PET plus CSF"),
+            "PET/CSF anti-amyloid",
+        )
+
     def test_empty_ranking(self) -> None:
         shift = calculate_neighborhood_shift([], [])
         self.assertFalse(shift.can_draw)
@@ -87,6 +116,9 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertEqual(by_id["A1"].movement, "moved_out")
         self.assertEqual(by_id["A2"].rank_before, 2)
         self.assertIsNone(by_id["A2"].rank_after)
+        self.assertTrue(by_id["A1"].dominant)
+        self.assertTrue(by_id["B1"].dominant)
+        self.assertFalse(by_id["A2"].dominant)
         self.assertIn("1 of 1", neighborhood_change_caption(shift))
 
     def test_fingerprint_status_mapping(self) -> None:
@@ -131,6 +163,26 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertTrue(all(0.0 <= point.similarity_pct <= 100.0 for point in points))
         self.assertTrue(all(point.intervention == "amyloid-beta" for point in points))
 
+    def test_scatter_hidden_when_coverage_is_uniform(self) -> None:
+        protocol = _protocol()
+        trials = [_trial("A"), _trial("B")]
+        ranking = rank_historical_trials(protocol, trials)
+        points = build_similarity_coverage_points(ranking, trials)
+        self.assertFalse(scatter_is_informative(points))
+        self.assertFalse(scatter_is_informative(()))
+        varied = (
+            points[0],
+            CoveragePoint(
+                trial_id="C",
+                title="c",
+                similarity_pct=40.0,
+                coverage_pct=50.0,
+                intervention="amyloid-beta",
+                is_top=False,
+            ),
+        )
+        self.assertTrue(scatter_is_informative(varied))
+
     def test_demo_changes_exactly_one_field(self) -> None:
         changes = describe_protocol_changes(DEMO_PROTOCOL_A, DEMO_PROTOCOL_B)
         self.assertEqual(len(changes), 1)
@@ -147,5 +199,10 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertTrue(shift.top_match_changed)
         self.assertEqual(len(shift.moved_in_ids), 3)
         self.assertEqual(len(shift.moved_out_ids), 3)
+        labels = {row.trial_id: row.short_title for row in shift.rows}
+        self.assertIn("Tau-directed", labels.values())
+        self.assertIn("Early anti-amyloid", labels.values())
         local = load_local_trials()
         self.assertEqual(len(local), 6)
+        points = build_similarity_coverage_points(ranking_b, list(trials))
+        self.assertFalse(scatter_is_informative(points))
