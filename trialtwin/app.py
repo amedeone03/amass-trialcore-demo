@@ -1,12 +1,9 @@
-"""TrialTwin Streamlit presentation layer.
-
-Protocol construction, ranking, and trial retrieval stay in the backend
-modules. This file only renders results.
-"""
+"""TrialTwin Streamlit presentation layer. Matching stays in the engine."""
 
 from __future__ import annotations
 
 import sys
+from dataclasses import replace
 from pathlib import Path
 
 import plotly.graph_objects as go
@@ -18,28 +15,29 @@ if str(ROOT) not in sys.path:
 
 from trialtwin.amass_client import get_historical_trials, load_local_trials
 from trialtwin.engine import (
-    STATUS_MARK,
     compare_protocol_scenarios,
     rank_historical_trials,
     summarize_historical_neighborhood,
 )
 from trialtwin.models import HistoricalTrial, Protocol
 
-TOP_K = 5
+DISPLAY_TOP = 3
 LOCKED_DISEASE = "Alzheimer's disease"
 LOCKED_PHASE = "Phase III"
+PURPLE = "#7C3AED"
+CYAN = "#06B6D4"
 
 STATUS_GLYPH = {
     "match": "✓",
     "partial": "~",
-    "mismatch": "✗",
+    "mismatch": "—",
     "unknown": "?",
 }
 
 FEATURE_LABEL = {
     "disease": "Disease",
     "phase": "Phase",
-    "disease_stage": "Stage",
+    "disease_stage": "Disease stage",
     "biomarker_strategy": "Biomarker",
     "primary_endpoint": "Endpoint",
     "duration_months": "Duration",
@@ -54,11 +52,13 @@ OUTCOME_BADGE = {
     "unknown": ("UNKNOWN", "gray"),
 }
 
-OUTCOME_COLORS = {
-    "favorable": "#3D9A6A",
-    "unfavorable": "#E05A5A",
-    "unclear": "#D4A017",
-    "unknown": "#8A97AB",
+PARAM_TITLES = {
+    "disease_stage": "Disease stage",
+    "biomarker_strategy": "Biomarker confirmation",
+    "duration_months": "Duration",
+    "primary_endpoint": "Primary endpoint",
+    "sample_size": "Sample size",
+    "target": "Target",
 }
 
 
@@ -75,16 +75,27 @@ def _is_unreliable(value: object) -> bool:
 
 
 def display_value(value: object) -> str:
-    """Show a field or an explicit gap. Never invent a clinical value."""
     if isinstance(value, bool):
         return "Required" if value else "Not required"
     if _is_unreliable(value):
-        return "Not available"
+        return "Unknown in source data"
     return str(value)
 
 
+def format_why_value(feature_name: str, raw: str) -> str:
+    if raw in {"unknown", "true", "false"} or raw.startswith("ambiguous:"):
+        if raw == "true":
+            return "Required"
+        if raw == "false":
+            return "Not required"
+        return "Unknown in source data"
+    if feature_name == "duration_months" and raw.isdigit():
+        return f"{raw} months"
+    return raw
+
+
 def target_choices(trials: list[HistoricalTrial]) -> list[str]:
-    options = []
+    options: list[str] = []
     seen: set[str] = set()
     for trial in trials:
         if _is_unreliable(trial.target):
@@ -97,9 +108,16 @@ def target_choices(trials: list[HistoricalTrial]) -> list[str]:
 
 @st.cache_data(ttl="1h", max_entries=4, show_spinner="Retrieving historical trials...")
 def load_cached_historical_set(use_live: bool) -> tuple[tuple[HistoricalTrial, ...], str, str]:
-    """Cache Amass/local retrieval. Protocol edits must not refetch."""
     result = get_historical_trials(use_live=use_live)
     return tuple(result.trials), result.source, result.note
+
+
+def load_trials_safely() -> tuple[tuple[HistoricalTrial, ...], str, str]:
+    try:
+        return load_cached_historical_set(True)
+    except Exception:
+        local = tuple(load_local_trials())
+        return local, "LOCAL DEMO DATA", "Live retrieval failed. Showing the TrialTwin prototype dataset."
 
 
 def source_caption(source: str) -> tuple[str, str]:
@@ -111,37 +129,7 @@ def source_caption(source: str) -> tuple[str, str]:
 def evidence_source_label(source: str) -> str:
     if source == "LIVE AMASS":
         return "Amass TrialCore"
-    return "TrialTwin local demo dataset"
-
-
-def render_why(result) -> None:
-    for item in result.feature_comparisons:
-        glyph = STATUS_GLYPH[item.status]
-        label = FEATURE_LABEL[item.feature_name]
-        mark = STATUS_MARK[item.status]
-        st.markdown(
-            f"{glyph} **{label}** — {mark}  \n"
-            f":small[protocol {item.protocol_value} · historical {item.historical_value} "
-            f"· contribution {item.contribution:.3f}]"
-        )
-
-
-def render_evidence(trial: HistoricalTrial, source: str) -> None:
-    rows = [
-        ("Trial", trial.title),
-        ("Identifier", trial.id),
-        ("Phase", display_value(trial.phase)),
-        ("Participants", display_value(trial.sample_size)),
-        ("Population / stage", display_value(trial.disease_stage)),
-        ("Biomarker", display_value(trial.biomarker_strategy)),
-        ("Duration", "Not available" if trial.duration_months is None else f"{trial.duration_months} months"),
-        ("Primary endpoint", display_value(trial.primary_endpoint)),
-        ("Historical outcome", OUTCOME_BADGE.get(trial.outcome_class, ("UNKNOWN", "gray"))[0]),
-        ("Why stopped", display_value(trial.why_stopped)),
-        ("Source", evidence_source_label(source)),
-    ]
-    for label, value in rows:
-        st.markdown(f"**{label}**  \n{value}")
+    return "TrialTwin prototype dataset"
 
 
 def build_protocol(
@@ -189,16 +177,6 @@ def protocol_field_labels(protocol: Protocol) -> dict[str, str]:
     }
 
 
-PARAM_TITLES = {
-    "disease_stage": "Disease stage",
-    "biomarker_strategy": "Biomarker confirmation",
-    "duration_months": "Duration",
-    "primary_endpoint": "Primary endpoint",
-    "sample_size": "Sample size",
-    "target": "Target",
-}
-
-
 def describe_protocol_changes(protocol_a: Protocol, protocol_b: Protocol) -> list[tuple[str, str, str]]:
     before = protocol_field_labels(protocol_a)
     after = protocol_field_labels(protocol_b)
@@ -211,172 +189,146 @@ def describe_protocol_changes(protocol_a: Protocol, protocol_b: Protocol) -> lis
 
 def short_label(result) -> str:
     title = result.trial_title.strip() or result.trial_id
-    if len(title) > 46:
-        return title[:43] + "..."
-    return title
+    return title[:40] + "..." if len(title) > 40 else title
 
 
-def neighborhood_chart(results, title: str) -> go.Figure:
-    items = list(reversed(results[:TOP_K]))
-    fig = go.Figure()
-    for result in items:
-        outcome = result.historical_outcome_class
-        fig.add_trace(
-            go.Bar(
-                x=[result.similarity_score * 100],
-                y=[short_label(result)],
-                orientation="h",
-                marker_color=OUTCOME_COLORS.get(outcome, "#8A97AB"),
-                name=outcome.upper(),
-                hovertemplate=(
-                    f"{result.trial_title}<br>"
-                    f"Historical similarity: {result.similarity_score * 100:.1f}%"
-                    f"<br>Historical outcome: {outcome}<extra></extra>"
-                ),
-                showlegend=False,
-            )
-        )
-    fig.update_layout(
-        title=title,
-        xaxis_title="Historical similarity (%)",
-        yaxis_title="Historical trial",
-        xaxis=dict(range=[0, 100], ticksuffix="%"),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(21,29,46,0.65)",
-        font=dict(color="#E8EEF7", size=12),
-        height=max(260, 52 * len(items) + 80),
-        margin=dict(l=16, r=16, t=48, b=40),
-        bargap=0.4,
+def apply_protocol_to_widgets(protocol: Protocol) -> None:
+    st.session_state.protocol_stage = protocol.disease_stage
+    st.session_state.protocol_biomarker = "Required" if protocol.biomarker_strategy else "Not required"
+    st.session_state.protocol_duration = protocol.duration_months
+    st.session_state.protocol_endpoint = protocol.primary_endpoint
+    st.session_state.protocol_n = protocol.sample_size
+    st.session_state.protocol_target = protocol.target
+
+
+def neighborhood_shift_score(protocol_a: Protocol, protocol_b: Protocol, trials: list[HistoricalTrial]) -> float:
+    comparison = compare_protocol_scenarios(protocol_a, protocol_b, trials, top_k=DISPLAY_TOP)
+    set_a = {item.trial_id for item in comparison.ranking_a[:DISPLAY_TOP]}
+    set_b = {item.trial_id for item in comparison.ranking_b[:DISPLAY_TOP]}
+    changed = len(set_a.symmetric_difference(set_b))
+    avg_a = sum(item.similarity_score for item in comparison.ranking_a[:DISPLAY_TOP]) / DISPLAY_TOP
+    avg_b = sum(item.similarity_score for item in comparison.ranking_b[:DISPLAY_TOP]) / DISPLAY_TOP
+    return changed * 10 + abs(avg_a - avg_b)
+
+
+def pick_demo_protocols(trials: list[HistoricalTrial], target: str) -> tuple[Protocol, Protocol]:
+    """Choose a one-parameter flip that actually moves the neighborhood."""
+    base = Protocol(
+        disease=LOCKED_DISEASE,
+        phase=LOCKED_PHASE,
+        target=target,
+        disease_stage="Early",
+        biomarker_strategy=True,
+        sample_size=1200,
+        duration_months=18,
+        primary_endpoint="CDR-SB",
     )
-    fig.update_xaxes(gridcolor="#243044", zeroline=False)
-    fig.update_yaxes(gridcolor="#243044")
+    candidates = [
+        replace(base, biomarker_strategy=False),
+        replace(base, duration_months=36),
+        replace(base, disease_stage="Late"),
+        replace(base, primary_endpoint="ADAS-Cog"),
+    ]
+    best_b = candidates[0]
+    best_score = -1.0
+    for candidate in candidates:
+        score = neighborhood_shift_score(base, candidate, trials)
+        if score > best_score:
+            best_score = score
+            best_b = candidate
+    return base, best_b
+
+
+def before_after_chart(ranking_a, ranking_b) -> go.Figure:
+    scores_a = {item.trial_id: item.similarity_score * 100 for item in ranking_a}
+    scores_b = {item.trial_id: item.similarity_score * 100 for item in ranking_b}
+    titles = {item.trial_id: short_label(item) for item in list(ranking_a) + list(ranking_b)}
+    ordered_ids: list[str] = []
+    for item in list(ranking_b[:DISPLAY_TOP]) + list(ranking_a[:DISPLAY_TOP]):
+        if item.trial_id not in ordered_ids:
+            ordered_ids.append(item.trial_id)
+    ordered_ids = list(reversed(ordered_ids))
+    labels = [titles[trial_id] for trial_id in ordered_ids]
+    fig = go.Figure()
+    fig.add_trace(
+        go.Bar(
+            name="Before",
+            x=[scores_a.get(trial_id, 0.0) for trial_id in ordered_ids],
+            y=labels,
+            orientation="h",
+            marker_color=PURPLE,
+            hovertemplate="Before: %{x:.1f}%<extra></extra>",
+        )
+    )
+    fig.add_trace(
+        go.Bar(
+            name="After",
+            x=[scores_b.get(trial_id, 0.0) for trial_id in ordered_ids],
+            y=labels,
+            orientation="h",
+            marker_color=CYAN,
+            hovertemplate="After: %{x:.1f}%<extra></extra>",
+        )
+    )
+    fig.update_layout(
+        barmode="group",
+        xaxis_title="Historical similarity (%)",
+        xaxis=dict(range=[0, 100]),
+        legend=dict(orientation="h", y=1.12),
+        paper_bgcolor="rgba(0,0,0,0)",
+        plot_bgcolor="rgba(17,24,39,0.9)",
+        font=dict(color="#E5E7EB", size=12),
+        height=max(280, 58 * len(ordered_ids) + 90),
+        margin=dict(l=8, r=8, t=28, b=36),
+        bargap=0.28,
+    )
+    fig.update_xaxes(gridcolor="#263244", zeroline=False)
+    fig.update_yaxes(gridcolor="#263244")
     return fig
 
 
+def render_why(result) -> None:
+    st.caption("✓ Exact match · ~ Similar · — Different · ? Unknown")
+    lines = [
+        "| Feature | Your protocol | Historical trial | |",
+        "| --- | --- | --- | --- |",
+    ]
+    for item in result.feature_comparisons:
+        lines.append(
+            f"| {FEATURE_LABEL[item.feature_name]} | "
+            f"{format_why_value(item.feature_name, item.protocol_value)} | "
+            f"{format_why_value(item.feature_name, item.historical_value)} | "
+            f"{STATUS_GLYPH[item.status]} |"
+        )
+    st.markdown("\n".join(lines))
+
+
+def render_evidence(trial: HistoricalTrial, source: str) -> None:
+    duration = (
+        "Unknown in source data"
+        if trial.duration_months is None
+        else f"{trial.duration_months} months"
+    )
+    rows = [
+        ("Phase", display_value(trial.phase)),
+        ("Participants", display_value(trial.sample_size)),
+        ("Population / disease stage", display_value(trial.disease_stage)),
+        ("Biomarker", display_value(trial.biomarker_strategy)),
+        ("Duration", duration),
+        ("Primary endpoint", display_value(trial.primary_endpoint)),
+        ("Historical outcome", OUTCOME_BADGE.get(trial.outcome_class, ("UNKNOWN", "gray"))[0]),
+        ("Source", evidence_source_label(source)),
+    ]
+    for label, value in rows:
+        st.markdown(f"**{label}**  \n{value}")
+
+
 def render_rank_list(results) -> None:
-    for result in results[:TOP_K]:
-        outcome_text, _ = OUTCOME_BADGE.get(result.historical_outcome_class, ("UNKNOWN", "gray"))
+    for result in results[:DISPLAY_TOP]:
         st.markdown(
             f"**{short_label(result)}**  \n"
-            f"{result.similarity_score * 100:.1f}% historical similarity · {outcome_text}"
+            f"{result.similarity_score * 100:.1f}%"
         )
-
-
-def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[HistoricalTrial]) -> None:
-    if protocol_fingerprint(protocol_a) == protocol_fingerprint(protocol_b):
-        with st.container(border=True):
-            st.header("What if?")
-            st.caption("Change one protocol parameter to recompute the historical neighborhood.")
-        return
-
-    comparison = compare_protocol_scenarios(protocol_a, protocol_b, trials, top_k=TOP_K)
-    changes = describe_protocol_changes(protocol_a, protocol_b)
-    scores_a = {item.trial_id: item.similarity_score for item in comparison.ranking_a}
-    scores_b = {item.trial_id: item.similarity_score for item in comparison.ranking_b}
-    titles = {item.trial_id: item.trial_title for item in comparison.ranking_a}
-    rank_a = {item.trial_id: index + 1 for index, item in enumerate(comparison.ranking_a)}
-    rank_b = {item.trial_id: index + 1 for index, item in enumerate(comparison.ranking_b)}
-
-    with st.container(border=True):
-        st.header("What if?")
-        for title, before, after in changes:
-            st.markdown(f"**{title}**")
-            st.markdown(f"{before} → {after}")
-        st.subheader("Historical neighborhood changed")
-        st.markdown(
-            "Changing this protocol parameter changed the historical trials "
-            "most similar to your design."
-        )
-        st.caption("This is a recomputation of historical similarity, not a clinical prediction.")
-
-        before_col, after_col = st.columns(2)
-        with before_col:
-            st.markdown("**Before**")
-            st.caption("Top historical designs")
-            render_rank_list(comparison.ranking_a)
-        with after_col:
-            st.markdown("**After**")
-            st.caption("Top historical designs")
-            render_rank_list(comparison.ranking_b)
-
-        st.markdown("**Neighborhood movement**")
-        entered = comparison.top_matches_only_in_b
-        left = comparison.top_matches_only_in_a
-
-        def name_for(trial_id: str) -> str:
-            raw = titles.get(trial_id, trial_id)
-            return raw[:46] + ("..." if len(raw) > 46 else "")
-
-        if entered:
-            for trial_id in entered:
-                st.markdown(f"Moved into top {TOP_K}: **{name_for(trial_id)}**")
-        if left:
-            for trial_id in left:
-                st.markdown(f"Moved out of top {TOP_K}: **{name_for(trial_id)}**")
-        if not entered and not left:
-            st.caption(
-                f"The same trials remain in the top {TOP_K}. Rank order or similarity values may still have changed."
-            )
-
-        moved = []
-        for change in comparison.changed_rankings:
-            delta_pts = (scores_b[change.trial_id] - scores_a[change.trial_id]) * 100
-            if change.rank_a > change.rank_b:
-                direction = "Moved up in ranking"
-            else:
-                direction = "Moved down in ranking"
-            sign = "+" if delta_pts >= 0 else ""
-            moved.append((change.trial_id, direction, sign, delta_pts, change.rank_a, change.rank_b))
-        if moved:
-            st.caption("Rank movement uses the full historical list. Similarity change is in percentage points.")
-            for trial_id, direction, sign, delta_pts, ra, rb in moved[:12]:
-                st.markdown(
-                    f"{direction}: **{titles[trial_id][:46]}**  \n"
-                    f":small[{ra} → {rb} · similarity changed {sign}{delta_pts:.1f} points]"
-                )
-
-        chart_a, chart_b = st.columns(2)
-        with chart_a:
-            st.plotly_chart(
-                neighborhood_chart(comparison.ranking_a, "Before"),
-                config={"displayModeBar": False},
-            )
-        with chart_b:
-            st.plotly_chart(
-                neighborhood_chart(comparison.ranking_b, "After"),
-                config={"displayModeBar": False},
-            )
-        st.caption(
-            "Bar length is historical similarity. Color is historical outcome class "
-            "(green favorable, red unfavorable, amber unclear, gray unknown). "
-            "Color does not imply causality."
-        )
-
-        st.markdown("**Why did the neighborhood change?**")
-        if len(changes) == 1:
-            st.markdown(f"Changed parameter: **{changes[0][0]}**")
-        else:
-            st.markdown("Changed parameters: **" + ", ".join(item[0] for item in changes) + "**")
-        st.markdown("Effect on similarity:")
-        union_ids = list(dict.fromkeys(
-            [item.trial_id for item in comparison.ranking_a[:TOP_K]]
-            + [item.trial_id for item in comparison.ranking_b[:TOP_K]]
-        ))
-        deltas = sorted(
-            union_ids,
-            key=lambda trial_id: abs(scores_b[trial_id] - scores_a[trial_id]),
-            reverse=True,
-        )
-        for trial_id in deltas:
-            delta_pts = (scores_b[trial_id] - scores_a[trial_id]) * 100
-            sign = "+" if delta_pts >= 0 else ""
-            st.markdown(f"**{titles[trial_id][:56]}**  \n{sign}{delta_pts:.1f} points")
-        if all(abs(scores_b[trial_id] - scores_a[trial_id]) < 1e-12 for trial_id in deltas):
-            st.caption(
-                "This parameter did not enter the score for these records "
-                "(unknown or unused in the historical data), so the neighborhood ranking stayed the same."
-            )
-        st.caption("These changes result from the deterministic feature weights used by TrialTwin.")
 
 
 def render_match_card(result, trial_by_id: dict[str, HistoricalTrial], source: str) -> None:
@@ -384,22 +336,76 @@ def render_match_card(result, trial_by_id: dict[str, HistoricalTrial], source: s
         result.historical_outcome_class, ("UNKNOWN", "gray")
     )
     with st.container(border=True):
-        title_col, score_col = st.columns([3.4, 1.2], vertical_alignment="center")
+        title_col, score_col = st.columns([3.2, 1.2], vertical_alignment="center")
         with title_col:
             st.markdown(f"**{result.trial_title}**")
-            st.caption(result.trial_id)
             st.badge(outcome_text, color=outcome_color)
         with score_col:
-            st.markdown(f"**{result.similarity_score * 100:.1f}%**")
-            st.caption("historical similarity")
+            st.markdown(f"### {result.similarity_score * 100:.1f}%")
+            st.caption("Similarity")
         with st.expander("Why this match?"):
             render_why(result)
         trial = trial_by_id.get(result.trial_id)
         with st.expander("Evidence"):
             if trial is None:
-                st.markdown("Evidence record is not available.")
+                st.markdown("Unknown in source data")
             else:
                 render_evidence(trial, source)
+
+
+def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[HistoricalTrial]) -> None:
+    with st.container(border=True):
+        st.header("What if?")
+        st.caption("Change one design choice and see how the historical neighborhood changes.")
+        if protocol_fingerprint(protocol_a) == protocol_fingerprint(protocol_b):
+            st.markdown("Adjust one control on the left to recompute historical similarity.")
+            return
+
+        comparison = compare_protocol_scenarios(protocol_a, protocol_b, trials, top_k=DISPLAY_TOP)
+        changes = describe_protocol_changes(protocol_a, protocol_b)
+        set_a = {item.trial_id for item in comparison.ranking_a[:DISPLAY_TOP]}
+        set_b = {item.trial_id for item in comparison.ranking_b[:DISPLAY_TOP]}
+        changed_count = len(set_a - set_b)
+        avg_a = sum(item.similarity_score for item in comparison.ranking_a[:DISPLAY_TOP]) / max(len(comparison.ranking_a[:DISPLAY_TOP]), 1)
+        avg_b = sum(item.similarity_score for item in comparison.ranking_b[:DISPLAY_TOP]) / max(len(comparison.ranking_b[:DISPLAY_TOP]), 1)
+        top_changed = comparison.ranking_a[0].trial_id != comparison.ranking_b[0].trial_id
+
+        for title, before, after in changes:
+            st.markdown(f"**{title}:** {before} → {after}")
+
+        st.subheader("Historical neighborhood changed")
+        metric_cols = st.columns(3)
+        metric_cols[0].metric(f"Top {DISPLAY_TOP} neighbors changed", f"{changed_count} of {DISPLAY_TOP}")
+        metric_cols[1].metric("Top match changed", "Yes" if top_changed else "No")
+        metric_cols[2].metric(
+            "Average similarity",
+            f"{avg_b * 100:.1f}%",
+            delta=f"{(avg_b - avg_a) * 100:+.1f} points",
+            delta_color="off",
+        )
+        st.caption(
+            "Changing this protocol parameter changed the historical trials most similar to your design."
+        )
+
+        before_col, after_col = st.columns(2)
+        with before_col:
+            st.markdown("**Current protocol**")
+            render_rank_list(comparison.ranking_a)
+        with after_col:
+            st.markdown("**What-if protocol**")
+            render_rank_list(comparison.ranking_b)
+
+        st.plotly_chart(before_after_chart(comparison.ranking_a, comparison.ranking_b), config={"displayModeBar": False})
+        st.caption("Bars are historical similarity only (purple = before, cyan = after). Not a clinical outcome.")
+
+        entered = comparison.top_matches_only_in_b
+        left = comparison.top_matches_only_in_a
+        titles = {item.trial_id: item.trial_title for item in comparison.ranking_a}
+        if entered or left:
+            for trial_id in entered:
+                st.markdown(f"Moved into top {DISPLAY_TOP}: {titles.get(trial_id, trial_id)[:48]}")
+            for trial_id in left:
+                st.markdown(f"Moved out of top {DISPLAY_TOP}: {titles.get(trial_id, trial_id)[:48]}")
 
 
 def main() -> None:
@@ -412,6 +418,11 @@ def main() -> None:
     st.session_state.setdefault("matches_requested", False)
     st.session_state.setdefault("scenario_a", None)
     st.session_state.setdefault("demo_pending", False)
+    st.session_state.setdefault("protocol_stage", "Early")
+    st.session_state.setdefault("protocol_biomarker", "Required")
+    st.session_state.setdefault("protocol_duration", 18)
+    st.session_state.setdefault("protocol_endpoint", "CDR-SB")
+    st.session_state.setdefault("protocol_n", 1200)
 
     if st.session_state.pop("apply_demo", False):
         st.session_state.matches_requested = True
@@ -421,27 +432,14 @@ def main() -> None:
     source = ""
     note = ""
     if st.session_state.matches_requested:
-        cached_trials, source, note = load_cached_historical_set(True)
+        cached_trials, source, note = load_trials_safely()
 
     if st.session_state.demo_pending and cached_trials is not None:
         options = target_choices(list(cached_trials)) or ["amyloid-beta"]
         demo_target = "amyloid-beta" if "amyloid-beta" in options else options[0]
-        st.session_state.protocol_stage = "Early"
-        st.session_state.protocol_duration = 18
-        st.session_state.protocol_endpoint = "CDR-SB"
-        st.session_state.protocol_n = 1200
-        st.session_state.protocol_target = demo_target
-        st.session_state.protocol_biomarker = "Not required"
-        st.session_state.scenario_a = Protocol(
-            disease=LOCKED_DISEASE,
-            phase=LOCKED_PHASE,
-            target=demo_target,
-            disease_stage="Early",
-            biomarker_strategy=True,
-            sample_size=1200,
-            duration_months=18,
-            primary_endpoint="CDR-SB",
-        )
+        protocol_a, protocol_b = pick_demo_protocols(list(cached_trials), demo_target)
+        st.session_state.scenario_a = protocol_a
+        apply_protocol_to_widgets(protocol_b)
         st.session_state.demo_pending = False
 
     st.html(
@@ -449,98 +447,63 @@ def main() -> None:
         <style>
         [data-testid="stSidebar"] { display: none; }
         [data-testid="stHeader"] { background: transparent; }
-        .block-container { padding-top: 1.4rem; padding-bottom: 3rem; }
+        .block-container { padding-top: 1.1rem; padding-bottom: 2.2rem; max-width: 1400px; }
+        div[data-testid="stVerticalBlockBorderWrapper"] { background: #111827; }
         </style>
         """
     )
 
-    header_left, header_right = st.columns([3, 1], vertical_alignment="center")
+    header_left, header_right = st.columns([3.2, 1.1], vertical_alignment="center")
     with header_left:
         st.title("TrialTwin")
         st.subheader("Historical Protocol Sandbox")
-        st.caption("Explore how your proposed trial compares with historical evidence.")
+        st.caption("Stress-test a proposed trial against historical evidence.")
+        st.caption("Change your protocol, and see which historical trials it starts to resemble.")
     with header_right:
+        st.badge("PROTOTYPE • ALZHEIMER'S PHASE III", color="violet")
         source_placeholder = st.empty()
 
-    protocol_col, neighborhood_col = st.columns([0.42, 0.58], gap="large")
+    protocol_col, neighborhood_col = st.columns([0.40, 0.60], gap="medium")
 
     with protocol_col:
         with st.container(border=True):
-            st.header("Your protocol")
-            st.caption("Alzheimer’s disease · Phase III are locked for this prototype.")
-            st.markdown(f"**Disease**  \n{LOCKED_DISEASE}")
-            st.markdown(f"**Phase**  \n{LOCKED_PHASE}")
+            st.header("Your hypothetical protocol")
+            st.caption(f"{LOCKED_DISEASE} · {LOCKED_PHASE}")
 
-            stage = st.segmented_control(
-                "Disease stage",
-                ["Early", "Late"],
-                default="Early",
-                key="protocol_stage",
-            ) or "Early"
+            stage = st.segmented_control("Disease stage", ["Early", "Late"], key="protocol_stage") or "Early"
             biomarker_label = st.segmented_control(
-                "Biomarker",
+                "Biomarker confirmation",
                 ["Required", "Not required"],
-                default="Required",
                 key="protocol_biomarker",
             ) or "Required"
             duration_months = st.segmented_control(
-                "Duration",
+                "Duration (months)",
                 [12, 18, 24, 36],
-                default=18,
                 key="protocol_duration",
-                help="Follow-up duration in months.",
             ) or 18
             endpoint = st.segmented_control(
                 "Primary endpoint",
                 ["CDR-SB", "ADAS-Cog"],
-                default="CDR-SB",
                 key="protocol_endpoint",
             ) or "CDR-SB"
-            sample_size = st.slider(
-                "Sample size",
-                min_value=200,
-                max_value=4000,
-                value=1200,
-                step=50,
-                key="protocol_n",
-            )
+            sample_size = st.slider("Sample size", min_value=200, max_value=4000, step=50, key="protocol_n")
             target_source = list(cached_trials) if cached_trials else load_local_trials()
             target_options = target_choices(target_source) or ["amyloid-beta"]
             default_target = "amyloid-beta" if "amyloid-beta" in target_options else target_options[0]
             if st.session_state.get("protocol_target") not in target_options:
                 st.session_state.protocol_target = default_target
-            target = st.selectbox(
-                "Target",
-                target_options,
-                key="protocol_target",
-                help="Options come from the historical dataset. No invented targets.",
-            )
+            target = st.selectbox("Target", target_options, key="protocol_target")
 
             find_col, demo_col = st.columns(2)
             with find_col:
-                if st.button(
-                    "Find historical matches",
-                    type="primary",
-                    icon=":material/search:",
-                    width="stretch",
-                ):
+                if st.button("Find historical matches", type="primary", icon=":material/search:", width="stretch"):
                     st.session_state.matches_requested = True
                     st.session_state.capture_scenario_a = True
                     st.rerun()
             with demo_col:
-                if st.button(
-                    "Demo scenario",
-                    icon=":material/science:",
-                    width="stretch",
-                    help="Scenario A: biomarker required. Scenario B: biomarker not required.",
-                ):
+                if st.button("Demo scenario", icon=":material/science:", width="stretch"):
                     st.session_state.apply_demo = True
                     st.rerun()
-
-            st.caption(
-                "Historical similarity is a resemblance heuristic. It is not a probability of "
-                "success or failure, and historical outcomes are not causal."
-            )
 
     protocol = build_protocol(
         stage=stage,
@@ -550,54 +513,45 @@ def main() -> None:
         sample_size=int(sample_size),
         target=target,
     )
-
     if st.session_state.pop("capture_scenario_a", False):
         st.session_state.scenario_a = protocol
 
     with neighborhood_col:
         st.header("Historical neighborhood")
+        st.caption("Historical trials with the most similar protocol designs.")
         if not st.session_state.matches_requested or cached_trials is None:
-            source_placeholder.badge("SOURCE PENDING", icon=":material/cloud_off:", color="gray")
+            source_placeholder.badge("SOURCE PENDING", color="gray")
             with st.container(border=True):
-                st.markdown("Configure a protocol, then find historical matches.")
-                st.caption("The first request loads Amass or the local demo dataset. Later edits re-rank locally.")
+                st.markdown("Find historical matches to load evidence, then change one design choice.")
             return
 
         trials = cached_trials
         badge_label, badge_color = source_caption(source)
-        source_placeholder.badge(badge_label, icon=":material/database:", color=badge_color)
+        source_placeholder.badge(badge_label, color=badge_color)
         if note:
             st.caption(note)
-
         if not trials:
             st.info("No historical trials are available from the current source.")
             return
 
         ranked = rank_historical_trials(protocol, list(trials))
-        summary = summarize_historical_neighborhood(ranked, top_k=TOP_K)
+        summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
         trial_by_id = {trial.id: trial for trial in trials}
-
-        st.caption("Closest historical neighbors for the current protocol. Colors label historical outcomes only.")
-        for result in ranked[:TOP_K]:
+        st.caption("Similarity is a transparent heuristic based on protocol features. It is not a clinical outcome prediction.")
+        for result in ranked[:DISPLAY_TOP]:
             render_match_card(result, trial_by_id, source)
 
         with st.container(border=True):
-            st.subheader("Historical outcome profile")
-            st.caption("Outcome profile among closest historical designs. Descriptive evidence only.")
-            count_cols = st.columns(4)
-            count_cols[0].metric("Favorable", summary.favorable)
-            count_cols[1].metric("Unfavorable", summary.unfavorable)
-            count_cols[2].metric("Unclear", summary.unclear)
-            count_cols[3].metric("Unknown", summary.unknown)
-            st.caption(
-                "These counts describe nearby historical designs. They are not a "
-                "success probability, failure probability, risk score, or prediction."
-            )
+            st.markdown("**Historical outcome profile**")
+            st.caption("Descriptive counts among the closest historical designs.")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("Favorable", summary.favorable)
+            c2.metric("Unfavorable", summary.unfavorable)
+            c3.metric("Unclear", summary.unclear)
+            c4.metric("Unknown", summary.unknown)
 
-    protocol_a = st.session_state.scenario_a
-    if protocol_a is None:
-        protocol_a = protocol
-        st.session_state.scenario_a = protocol_a
+    protocol_a = st.session_state.scenario_a or protocol
+    st.session_state.scenario_a = protocol_a
     render_what_if(protocol_a, protocol, list(trials))
 
 
