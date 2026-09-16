@@ -3,22 +3,8 @@
 ### Historical benchmarking for clinical-trial design
 
 🥈 **2nd Place at the AI in Life Sciences Hackathon**  
-**DTU Skylab × Cursor × Amass**  
+**DTU Skylab** × **Cursor** × **Amass**  
 Copenhagen, Denmark · 16 September 2026
-
-<p align="center">
-  <img src="docs/assets/dtu-skylab-logo.png"
-       alt="DTU Skylab"
-       height="48">
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/cursor-logo.svg"
-       alt="Cursor"
-       height="50">
-  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
-  <img src="docs/assets/amass-logo.svg"
-       alt="Amass"
-       height="42">
-</p>
 
 > **Change your protocol. See which historical trials it starts to resemble.**
 
