@@ -2,7 +2,7 @@
 
 TrialCore search has no documented offset/cursor pagination. Each request
 returns at most 300 records via ``limit`` (documented range 1–300).
-ProtocolNeighbor therefore retrieves a single capped page and ranks inside
+TrialTwin therefore retrieves a single capped page and ranks inside
 that retrieved candidate set — not the full TrialCore corpus.
 """
 
@@ -83,11 +83,15 @@ def get_amass_api_key() -> str:
 
 
 def resolve_candidate_limit(raw: str | None = None) -> int:
-    """Clamp a configured retrieval cap to the documented TrialCore range."""
+    """Clamp a configured retrieval cap to the documented TrialCore range.
+
+    Documented variable: ``TRIALTWIN_CANDIDATE_LIMIT``.
+    ``PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT`` is a deprecated alias.
+    """
     if raw is None:
         _load_env_files()
-        raw = os.getenv("PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT") or os.getenv(
-            "TRIALTWIN_CANDIDATE_LIMIT"
+        raw = os.getenv("TRIALTWIN_CANDIDATE_LIMIT") or os.getenv(
+            "PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT"  # deprecated alias
         )
     if raw is None or not str(raw).strip():
         return DEFAULT_LIMIT
@@ -95,7 +99,7 @@ def resolve_candidate_limit(raw: str | None = None) -> int:
         value = int(str(raw).strip())
     except ValueError as exc:
         raise AmassConfigError(
-            "PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT must be an integer."
+            "TRIALTWIN_CANDIDATE_LIMIT must be an integer."
         ) from exc
     if value < MIN_LIMIT or value > MAX_LIMIT:
         raise AmassConfigError(

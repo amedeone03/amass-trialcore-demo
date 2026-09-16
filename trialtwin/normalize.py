@@ -19,7 +19,7 @@ from trialtwin.models import HistoricalTrial
 UNKNOWN = "unknown"
 AMBIGUOUS_PREFIX = "ambiguous: "
 
-# Official TrialCore phase enums → display labels used by ProtocolNeighbor.
+# Official TrialCore phase enums → display labels used by TrialTwin.
 PHASE_LABELS = {
     "EARLY_PHASE1": "Early Phase I",
     "PHASE1": "Phase I",

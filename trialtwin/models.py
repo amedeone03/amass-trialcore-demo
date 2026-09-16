@@ -1,4 +1,4 @@
-"""Domain models for ProtocolNeighbor protocol and historical-trial comparison."""
+"""Domain models for TrialTwin protocol and historical-trial comparison."""
 
 from __future__ import annotations
 

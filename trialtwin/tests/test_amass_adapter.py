@@ -178,6 +178,22 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(AmassConfigError):
             resolve_candidate_limit("abc")
 
+    def test_trialtwin_limit_env_preferred_over_deprecated_alias(self) -> None:
+        env = {
+            "TRIALTWIN_CANDIDATE_LIMIT": "80",
+            "PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT": "25",
+        }
+        with patch.dict("os.environ", env, clear=False):
+            with patch("trialtwin.amass_client.load_dotenv"):
+                self.assertEqual(resolve_candidate_limit(None), 80)
+
+    def test_deprecated_protocol_neighbor_limit_still_read(self) -> None:
+        env = {"PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT": "40"}
+        with patch.dict("os.environ", env, clear=False):
+            with patch("trialtwin.amass_client.load_dotenv"):
+                with patch.dict("os.environ", {"TRIALTWIN_CANDIDATE_LIMIT": ""}, clear=False):
+                    self.assertEqual(resolve_candidate_limit(None), 40)
+
     def test_missing_api_key(self) -> None:
         with patch.dict("os.environ", {"AMASS_API_KEY": ""}, clear=False):
             with patch("trialtwin.amass_client.load_dotenv"):

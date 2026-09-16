@@ -1,26 +1,29 @@
-# Capture a ProtocolNeighbor demo GIF
+# Capture a TrialTwin demo GIF
 
-Target path: `docs/assets/protocol-neighbor-demo.gif`  
-Length: about 8–15 seconds.
+Target path: `docs/assets/trialtwin-demo.gif`
 
-Do not generate a fake UI image. Record the running app.
+Target duration: 8–15 seconds.
+
+Do not generate a fake UI image. Record the real running app.
 
 ## Suggested flow
 
-1. `streamlit run app.py` and open the local URL.
-2. Show the proposed protocol panel.
+1. Run:
+   `streamlit run app.py`
+2. Show the hypothetical protocol.
 3. Click **Find historical matches**.
-4. Ranked historical matches appear (similarity + coverage).
+4. Show historical similarity + comparison coverage.
 5. Expand **Why this match?**
-6. Change one protocol parameter.
-7. Confirm the What-if neighborhood reranks.
+6. Expand **Evidence**.
+7. Change one protocol parameter.
+8. Show the historical neighborhood rerank.
 
 ## Capture (macOS)
 
 QuickTime Player → File → New Screen Recording, crop to the browser window, export a short clip, then:
 
 ```bash
-ffmpeg -i capture.mov -vf "fps=10,scale=960:-1:flags=lanczos" -loop 0 docs/assets/protocol-neighbor-demo.gif
+ffmpeg -i capture.mov -vf "fps=10,scale=960:-1:flags=lanczos" -loop 0 docs/assets/trialtwin-demo.gif
 ```
 
-Keep the file reasonably small. After the GIF exists, replace the screenshot-first block in `README.md` with the GIF near the top.
+Keep the file reasonably small. After the GIF exists, it can replace the hero screenshot in `README.md`.

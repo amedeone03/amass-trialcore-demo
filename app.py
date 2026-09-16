@@ -1,4 +1,4 @@
-"""ProtocolNeighbor Streamlit entrypoint."""
+"""TrialTwin Streamlit entrypoint."""
 
 from trialtwin.app import main
 

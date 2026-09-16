@@ -1,1 +1,1 @@
-"""ProtocolNeighbor historical protocol sandbox (internal package still named trialtwin)."""
+"""TrialTwin historical protocol sandbox."""

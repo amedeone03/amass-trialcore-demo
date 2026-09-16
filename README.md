@@ -1,28 +1,24 @@
-# ProtocolNeighbor
+# TrialTwin
 
 ### An evidence-driven historical sandbox for clinical-trial design
 
-🥈 **2nd Place** — AI in Life Sciences Hackathon @ DTU Skylab, Copenhagen — September 2026
+🥈 **2nd Place — One-day AI in Life Sciences Hackathon — DTU Skylab × Cursor × Amass — Copenhagen, September 2026**
 
 > Change your protocol, and see which historical trials it starts to resemble.
 
-ProtocolNeighbor lets a researcher define a hypothetical Alzheimer's Phase III protocol, compare it with historical studies, see which protocol characteristics are comparable, and explore how the historical neighborhood changes when one design parameter changes.
+TrialTwin was built in one day to explore a simple question: how can a researcher compare a proposed clinical-trial protocol with historical trial designs and see how that historical neighborhood changes when one design decision changes?
 
 <p align="center">
   <a href="https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/">
-    <img alt="Live demo" src="https://img.shields.io/badge/LIVE%20DEMO-Open%20ProtocolNeighbor-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white">
+    <img alt="Live demo" src="https://img.shields.io/badge/LIVE%20DEMO-Open%20TrialTwin-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white">
   </a>
 </p>
 
-A demo GIF is not in this repository yet. Capture steps: [`docs/DEMO_GIF.md`](docs/DEMO_GIF.md).
-
-The screenshots below were captured before the ProtocolNeighbor rebrand (previous public name: TrialTwin). Treat them as layout references, not current chrome.
-
 <p align="center">
-  <img src="docs/assets/trialtwin-dashboard.png" alt="ProtocolNeighbor layout: proposed protocol and historical matches (pre-rebrand capture)" width="720">
+  <img src="docs/assets/trialtwin-dashboard.png" alt="TrialTwin: proposed protocol and closest historical matches" width="920">
 </p>
 
-Live app: [ProtocolNeighbor on Streamlit](https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/)
+Live app: [TrialTwin on Streamlit](https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/)
 
 ---
 
@@ -30,7 +26,7 @@ Live app: [ProtocolNeighbor on Streamlit](https://amedeone03-amass-trialcore-dem
 
 Clinical-trial design often requires researchers to benchmark a proposed protocol against historical studies: intervention, population, endpoint, duration, biomarker strategy, and sample size.
 
-ProtocolNeighbor turns that historical comparison into an interactive sandbox. Historical similarity means **resemblance only**.
+TrialTwin turns that historical comparison into an interactive sandbox. Historical similarity means **resemblance only**.
 
 ---
 
@@ -59,13 +55,11 @@ flowchart TD
 
 Alzheimer's disease and Phase III define the candidate pool; they are not part of the similarity score.
 
-Similarity compares available protocol design features. Coverage tells you how much comparable data was actually available. Details: [`docs/SCORING.md`](docs/SCORING.md).
-
 ---
 
 ## Scientific scope
 
-ProtocolNeighbor is a research/hackathon prototype.
+TrialTwin is a one-day hackathon prototype.
 
 It provides historical protocol similarity, coverage, and evidence traceability.
 
@@ -75,11 +69,29 @@ Live TrialCore mode currently does not classify trial success/failure. Outcome i
 
 ---
 
+## Comparison coverage
+
+Similarity compares available protocol design features. Coverage tells you how much comparable data was actually available. They are different numbers.
+
+Details: [`docs/SCORING.md`](docs/SCORING.md).
+
+---
+
+## Data provenance
+
+**Live mode (AMASS TRIALCORE).** Records are fetched (`Alzheimer's disease`, `PHASE3`) and normalized. Missing fields stay unknown/`None`. Protocol duration is not inferred from study start/completion dates. Those dates may appear as **study calendar span** in Evidence only. Registry `sourceUrl` is shown when Amass provides it; no fake Amass UI URL is constructed.
+
+**Demo mode (LOCAL SYNTHETIC DATA).** If live retrieval is not requested or Amass is unavailable (expected Amass errors only), the app loads `trialtwin/data/alzheimer_trials.json`. Those records are mock/synthetic. Demo outcome labels are sandbox labels only.
+
+The MIT license covers this repository's source code, not Amass data or third-party services.
+
+---
+
 ## Candidate retrieval
 
 TrialCore **search does not document offset or cursor pagination**. Each search request returns at most 300 records via `limit` (documented range 1–300).
 
-ProtocolNeighbor requests a single capped page (default **100**, configurable with `PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT`, maximum 300). Ranking is among those retrieved Phase III Alzheimer candidates, not an exhaustive corpus search.
+TrialTwin requests a single capped page (default **100**, configurable with `TRIALTWIN_CANDIDATE_LIMIT`, maximum 300). Ranking is among those retrieved Phase III Alzheimer candidates, not an exhaustive corpus search.
 
 ---
 
@@ -108,29 +120,33 @@ python -m unittest discover -s trialtwin/tests -v
 
 ---
 
-## Data provenance
-
-**Live mode (AMASS TRIALCORE).** Records are fetched (`Alzheimer's disease`, `PHASE3`) and normalized. Missing fields stay unknown/`None`. Protocol duration is not inferred from study start/completion dates. Those dates may appear as **study calendar span** in Evidence only. Registry `sourceUrl` is shown when Amass provides it; no fake Amass UI URL is constructed.
-
-**Demo mode (LOCAL SYNTHETIC DATA).** If live retrieval is not requested or Amass is unavailable (expected Amass errors only), the app loads `trialtwin/data/alzheimer_trials.json`. Those records are mock/synthetic. Demo outcome labels are sandbox labels only.
-
-The MIT license covers this repository's source code, not Amass data or third-party services.
-
----
-
 ## Architecture
 
 | Piece | Role |
 | --- | --- |
 | Amass TrialCore | Historical clinical-trial records |
-| `trialtwin` package | Normalization, similarity, ranking (internal name retained) |
+| `trialtwin` package | Normalization, similarity, ranking |
 | Streamlit | Interactive application |
 
 ---
 
 ## Hackathon
 
-ProtocolNeighbor started as TrialTwin during the AI in Life Sciences Hackathon at DTU Skylab in Copenhagen in September 2026. The project placed 2nd. Built with Cursor and Amass tooling. That does not imply endorsement beyond hosting and tooling.
+TrialTwin was built in one day during the AI in Life Sciences Hackathon at DTU Skylab in Copenhagen in September 2026.
+
+The hackathon brought together DTU Skylab, Cursor, and Amass to build working software around life-science data.
+
+TrialTwin placed **2nd**.
+
+The prototype was developed by:
+
+- Amedeo Bozzoli
+- Christian Deluca
+- Marcos Cuervo Santos
+
+Cursor was used as an AI-assisted development environment, while Amass TrialCore supplied historical clinical-trial data. That does not imply endorsement beyond participation, hosting, and tooling.
+
+---
 
 ## Team
 
@@ -138,12 +154,16 @@ ProtocolNeighbor started as TrialTwin during the AI in Life Sciences Hackathon a
 - Christian Deluca
 - Marcos Cuervo Santos
 
+---
+
 ## Roadmap
 
 - Expand beyond Alzheimer's disease
 - Validate similarity features with domain experts
 - Optional DrugCore mapping from intervention to biological target
 - Evaluate similarity functions empirically
+
+---
 
 ## License
 

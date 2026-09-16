@@ -1,4 +1,4 @@
-"""Pure display helpers for ProtocolNeighbor. No Streamlit dependency."""
+"""Pure display helpers for TrialTwin. No Streamlit dependency."""
 
 from __future__ import annotations
 

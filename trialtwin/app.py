@@ -1,4 +1,4 @@
-"""ProtocolNeighbor Streamlit presentation layer. Matching stays in the engine."""
+"""TrialTwin Streamlit presentation layer. Matching stays in the engine."""
 
 from __future__ import annotations
 
@@ -415,7 +415,7 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
 
 def main() -> None:
     st.set_page_config(
-        page_title="ProtocolNeighbor",
+        page_title="TrialTwin",
         page_icon=":material/biotech:",
         layout="wide",
         initial_sidebar_state="collapsed",
@@ -484,8 +484,8 @@ def main() -> None:
         div[data-testid="stProgressBar"] > div { background: linear-gradient(90deg, #7C3AED, #06B6D4); }
         </style>
         <div class="tt-hero">
-          <div class="tt-kicker">Amass TrialCore · prototype</div>
-          <h1>ProtocolNeighbor</h1>
+          <div class="tt-kicker">DTU Skylab × Cursor × Amass · Hackathon prototype</div>
+          <h1>TrialTwin</h1>
           <p>Change your protocol, and see which historical trials it starts to resemble.</p>
         </div>
         """

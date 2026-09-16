@@ -1,4 +1,4 @@
-"""Deterministic tests for the ProtocolNeighbor similarity engine."""
+"""Deterministic tests for the TrialTwin similarity engine."""
 
 from __future__ import annotations
 
