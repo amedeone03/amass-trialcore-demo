@@ -1,4 +1,4 @@
-"""Domain models for TrialTwin protocol and historical-trial comparison."""
+"""Domain models for ProtocolNeighbor protocol and historical-trial comparison."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ REQUIRED_TRIAL_FIELDS = (
     "title",
     "disease",
     "phase",
-    "target",
+    "intervention",
     "disease_stage",
     "biomarker_strategy",
     "sample_size",
@@ -24,6 +24,15 @@ REQUIRED_TRIAL_FIELDS = (
     "why_stopped",
 )
 
+OPTIONAL_TRIAL_FIELDS = (
+    "primary_endpoint_raw",
+    "study_span_months",
+    "amass_id",
+    "registry_id",
+    "source_registry",
+    "source_url",
+)
+
 VALID_OUTCOME_CLASSES = frozenset({"favorable", "unfavorable", "unclear", "unknown"})
 
 DEFAULT_DATA_PATH = Path(__file__).resolve().parent / "data" / "alzheimer_trials.json"
@@ -31,11 +40,16 @@ DEFAULT_DATA_PATH = Path(__file__).resolve().parent / "data" / "alzheimer_trials
 
 @dataclass
 class Protocol:
-    """Hypothetical protocol used only for historical design comparison."""
+    """Hypothetical protocol used only for historical design comparison.
+
+    ``intervention`` is the named product/compound/tracer, not a biological
+    target. ``duration_months`` is the intended protocol/follow-up duration
+    chosen by the user.
+    """
 
     disease: str = "Alzheimer's disease"
     phase: str = "Phase III"
-    target: str = ""
+    intervention: str = ""
     disease_stage: str = ""
     biomarker_strategy: bool = False
     sample_size: int = 0
@@ -50,16 +64,19 @@ class HistoricalTrial:
     ``outcome_class`` is a descriptive label only. It does not mean the
     protocol design caused success or failure.
 
-    Optional numeric/boolean fields are ``None`` when Amass does not provide
-    a value. String sentinels ``unknown`` / ``ambiguous: ...`` mark missing
-    or conflicting values. Do not treat those sentinels as clinical facts.
+    ``duration_months`` is protocol/follow-up duration when a semantically
+    equivalent value exists (local mock data). Live TrialCore records leave
+    this ``None``. ``study_span_months`` is calendar start→completion only
+    and is never scored.
+
+    ``intervention`` is intervention name/MeSH, not a mapped biological target.
     """
 
     id: str
     title: str
     disease: str
     phase: str
-    target: str
+    intervention: str
     disease_stage: str
     biomarker_strategy: bool | None
     sample_size: int | None
@@ -67,6 +84,12 @@ class HistoricalTrial:
     primary_endpoint: str
     outcome_class: OutcomeClass
     why_stopped: str
+    primary_endpoint_raw: str = ""
+    study_span_months: int | None = None
+    amass_id: str | None = None
+    registry_id: str | None = None
+    source_registry: str | None = None
+    source_url: str | None = None
 
 
 def _require(record: dict[str, Any], field: str, index: int) -> Any:
@@ -100,12 +123,29 @@ def _require_int(record: dict[str, Any], field: str, index: int) -> int:
     return value
 
 
+def _optional_str(record: dict[str, Any], field: str) -> str | None:
+    value = record.get(field)
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        return None
+    text = value.strip()
+    return text or None
+
+
+def _optional_int(record: dict[str, Any], field: str, index: int) -> int | None:
+    if field not in record or record[field] is None:
+        return None
+    return _require_int(record, field, index)
+
+
 def historical_trial_from_dict(record: dict[str, Any], index: int = 0) -> HistoricalTrial:
-    """Validate a record dict and construct a HistoricalTrial."""
+    """Validate a local JSON record and construct a HistoricalTrial."""
     if not isinstance(record, dict):
         raise ValueError(f"Trial at index {index} must be an object.")
 
-    extra = set(record) - set(REQUIRED_TRIAL_FIELDS)
+    allowed = set(REQUIRED_TRIAL_FIELDS) | set(OPTIONAL_TRIAL_FIELDS)
+    extra = set(record) - allowed
     if extra:
         raise ValueError(
             f"Trial at index {index} has unexpected fields: {sorted(extra)}."
@@ -118,19 +158,28 @@ def historical_trial_from_dict(record: dict[str, Any], index: int = 0) -> Histor
             f"{sorted(VALID_OUTCOME_CLASSES)}; got {outcome_class!r}."
         )
 
+    endpoint = _require_str(record, "primary_endpoint", index)
+    raw = _optional_str(record, "primary_endpoint_raw") or endpoint
+
     return HistoricalTrial(
         id=_require_str(record, "id", index),
         title=_require_str(record, "title", index),
         disease=_require_str(record, "disease", index),
         phase=_require_str(record, "phase", index),
-        target=_require_str(record, "target", index),
+        intervention=_require_str(record, "intervention", index),
         disease_stage=_require_str(record, "disease_stage", index),
         biomarker_strategy=_require_bool(record, "biomarker_strategy", index),
         sample_size=_require_int(record, "sample_size", index),
         duration_months=_require_int(record, "duration_months", index),
-        primary_endpoint=_require_str(record, "primary_endpoint", index),
+        primary_endpoint=endpoint,
         outcome_class=outcome_class,  # type: ignore[arg-type]
         why_stopped=_require_str(record, "why_stopped", index),
+        primary_endpoint_raw=raw,
+        study_span_months=_optional_int(record, "study_span_months", index),
+        amass_id=_optional_str(record, "amass_id"),
+        registry_id=_optional_str(record, "registry_id"),
+        source_registry=_optional_str(record, "source_registry"),
+        source_url=_optional_str(record, "source_url"),
     )
 
 

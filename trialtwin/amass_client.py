@@ -1,12 +1,9 @@
 """Amass TrialCore HTTP adapter and historical-trial data access.
 
-Responsibilities:
-- authenticate with AMASS_API_KEY
-- fetch raw TrialCore search results
-- hand records to the normalizer
-- fall back to the local demo JSON when Amass is unavailable
-
-This module must not contain UI, similarity, scoring, or LLM logic.
+TrialCore search has no documented offset/cursor pagination. Each request
+returns at most 300 records via ``limit`` (documented range 1–300).
+ProtocolNeighbor therefore retrieves a single capped page and ranks inside
+that retrieved candidate set — not the full TrialCore corpus.
 """
 
 from __future__ import annotations
@@ -19,12 +16,17 @@ from typing import Any, Literal
 import requests
 from dotenv import load_dotenv
 
+from trialtwin.engine import matches_candidate_pool
 from trialtwin.models import DEFAULT_DATA_PATH, HistoricalTrial, load_historical_trials
 from trialtwin.normalize import normalize_amass_records
 
 TRIALCORE_SEARCH_URL = "https://api.amass.tech/api/v1/cores/trialcore/records"
 DEFAULT_TIMEOUT_SECONDS = 30
-DEFAULT_LIMIT = 50
+# Documented TrialCore search default is 20; documented maximum is 300.
+# Spec default: 100 when that value is within documented support.
+DEFAULT_LIMIT = 100
+MAX_LIMIT = 300
+MIN_LIMIT = 1
 ALZHEIMER_QUERY = "Alzheimer's disease"
 ALZHEIMER_PHASE = "PHASE3"
 
@@ -80,6 +82,29 @@ def get_amass_api_key() -> str:
     return key
 
 
+def resolve_candidate_limit(raw: str | None = None) -> int:
+    """Clamp a configured retrieval cap to the documented TrialCore range."""
+    if raw is None:
+        _load_env_files()
+        raw = os.getenv("PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT") or os.getenv(
+            "TRIALTWIN_CANDIDATE_LIMIT"
+        )
+    if raw is None or not str(raw).strip():
+        return DEFAULT_LIMIT
+    try:
+        value = int(str(raw).strip())
+    except ValueError as exc:
+        raise AmassConfigError(
+            "PROTOCOL_NEIGHBOR_CANDIDATE_LIMIT must be an integer."
+        ) from exc
+    if value < MIN_LIMIT or value > MAX_LIMIT:
+        raise AmassConfigError(
+            f"Candidate limit must be between {MIN_LIMIT} and {MAX_LIMIT} "
+            f"(TrialCore documented search range)."
+        )
+    return value
+
+
 @dataclass(frozen=True)
 class HistoricalTrialSet:
     """Normalized trials plus provenance for a later UI source banner."""
@@ -118,8 +143,16 @@ class AmassClient:
         limit: int = DEFAULT_LIMIT,
         extra_params: list[tuple[str, str]] | None = None,
     ) -> list[dict[str, Any]]:
-        """GET /v1/cores/trialcore/records and return the `data` array."""
-        params: list[tuple[str, str]] = [("query", query), ("limit", str(limit))]
+        """GET /v1/cores/trialcore/records and return the `data` array.
+
+        Pagination is not implemented because TrialCore search does not
+        document offset or cursor parameters.
+        """
+        resolved_limit = resolve_candidate_limit(str(limit))
+        params: list[tuple[str, str]] = [
+            ("query", query),
+            ("limit", str(resolved_limit)),
+        ]
         if extra_params:
             params.extend(extra_params)
 
@@ -179,13 +212,14 @@ class AmassClient:
 def fetch_alzheimer_phase3_trials(
     *,
     client: AmassClient | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int | None = None,
 ) -> list[HistoricalTrial]:
     """Fetch Alzheimer's Phase III trials from TrialCore and normalize them."""
     amass = client or AmassClient()
+    resolved = resolve_candidate_limit(str(limit) if limit is not None else None)
     raw = amass.search_records(
         ALZHEIMER_QUERY,
-        limit=limit,
+        limit=resolved,
         extra_params=[("phase", ALZHEIMER_PHASE)],
     )
     trials, skipped = normalize_amass_records(raw)
@@ -194,7 +228,7 @@ def fetch_alzheimer_phase3_trials(
             "TrialCore returned records but none could be normalized: "
             + "; ".join(skipped)
         )
-    return trials
+    return [trial for trial in trials if matches_candidate_pool(trial)]
 
 
 def load_local_trials(path: str | None = None) -> list[HistoricalTrial]:
@@ -206,12 +240,12 @@ def get_historical_trials(
     use_live: bool = True,
     *,
     client: AmassClient | None = None,
-    limit: int = DEFAULT_LIMIT,
+    limit: int | None = None,
 ) -> HistoricalTrialSet:
-    """Return historical trials from Amass, or the local demo file on failure.
+    """Return historical trials from Amass, or the local demo file on AmassError.
 
     Empty live results are not replaced with demo rows. Fallback is only used
-    when Amass is unavailable (config, HTTP, timeout, or malformed payload).
+    for expected Amass access failures. Programming errors propagate.
     """
     if not use_live:
         return HistoricalTrialSet(

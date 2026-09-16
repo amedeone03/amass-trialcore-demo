@@ -1,1 +1,1 @@
-"""TrialTwin: historical protocol sandbox for Alzheimer's Phase III designs."""
+"""ProtocolNeighbor historical protocol sandbox (internal package still named trialtwin)."""

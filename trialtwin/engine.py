@@ -3,6 +3,9 @@
 This is an interpretable prototype heuristic. Weights are not clinical
 evidence and must not be presented as medically validated. Scores measure
 resemblance only. They are not probabilities of success or failure.
+
+Disease and phase define the candidate pool. They are not similarity features.
+Calendar study span, outcome labels, and provenance never enter the score.
 """
 
 from __future__ import annotations
@@ -14,32 +17,30 @@ from trialtwin.models import HistoricalTrial, OutcomeClass, Protocol
 
 FeatureStatus = Literal["match", "partial", "mismatch", "unknown"]
 
+# Design characteristics that can still vary after Alzheimer / Phase III filtering.
 FEATURE_ORDER = (
-    "disease",
-    "phase",
+    "intervention",
     "disease_stage",
     "biomarker_strategy",
     "primary_endpoint",
     "duration_months",
     "sample_size",
-    "target",
 )
 
-# Prototype heuristic only. Not medically validated.
+# Relative weights from the original prototype after dropping disease (0.15)
+# and phase (0.10), then renormalized to sum to 1.0.
+# Original remaining mass = 0.75.
+# intervention remains 1/15 (~6.7%): a prototype leftover, not a clinical ranking.
 FEATURE_WEIGHTS: dict[str, float] = {
-    "disease": 0.15,
-    "phase": 0.10,
-    "disease_stage": 0.20,
-    "biomarker_strategy": 0.20,
-    "primary_endpoint": 0.15,
-    "duration_months": 0.10,
-    "sample_size": 0.05,
-    "target": 0.05,
+    "disease_stage": 4.0 / 15.0,
+    "biomarker_strategy": 4.0 / 15.0,
+    "primary_endpoint": 3.0 / 15.0,
+    "duration_months": 2.0 / 15.0,
+    "sample_size": 1.0 / 15.0,
+    "intervention": 1.0 / 15.0,
 }
 
 # Linear distance scales: similarity = max(0, 1 - |p - h| / scale).
-# duration: 18 months is a typical Phase III follow-up in the demo set.
-# sample_size: 2000 is a large Phase III enrollment band in the demo set.
 NUMERIC_SCALES: dict[str, float] = {
     "duration_months": 18.0,
     "sample_size": 2000.0,
@@ -47,15 +48,15 @@ NUMERIC_SCALES: dict[str, float] = {
 
 CATEGORICAL_FEATURES = frozenset(
     {
-        "disease",
-        "phase",
+        "intervention",
         "disease_stage",
         "biomarker_strategy",
         "primary_endpoint",
-        "target",
     }
 )
 NUMERIC_FEATURES = frozenset({"duration_months", "sample_size"})
+
+LOW_COVERAGE_THRESHOLD = 0.50
 
 STATUS_MARK = {
     "match": "exact",
@@ -63,6 +64,9 @@ STATUS_MARK = {
     "mismatch": "different",
     "unknown": "unknown",
 }
+
+LOCKED_DISEASE = "Alzheimer's disease"
+LOCKED_PHASE = "Phase III"
 
 
 @dataclass(frozen=True)
@@ -107,8 +111,9 @@ class FeatureComparison:
 class SimilarityResult:
     """Explainable resemblance between a protocol and one historical trial.
 
-    ``similarity_score`` is in [0, 1]. It is not a probability of success.
-    ``historical_outcome_class`` is descriptive only and is not a prediction.
+    ``similarity_score`` is resemblance among comparable fields only.
+    ``comparison_coverage`` is the share of intended feature weight that had
+    usable data. The two metrics are independent.
     """
 
     trial_id: str
@@ -117,6 +122,10 @@ class SimilarityResult:
     feature_comparisons: tuple[FeatureComparison, ...]
     historical_outcome_class: OutcomeClass
     why_stopped: str
+    comparable_feature_count: int
+    total_feature_count: int
+    comparison_coverage: float
+    comparable_weight: float
 
 
 @dataclass(frozen=True)
@@ -228,6 +237,23 @@ def _linear_numeric_similarity(protocol_value: int, historical_value: int, scale
     return max(0.0, 1.0 - abs(protocol_value - historical_value) / scale)
 
 
+def matches_candidate_pool(
+    trial: HistoricalTrial,
+    *,
+    disease: str = LOCKED_DISEASE,
+    phase: str = LOCKED_PHASE,
+) -> bool:
+    """Eligibility filter. Not a similarity feature."""
+    return (
+        trial.disease.strip().casefold() == disease.strip().casefold()
+        and trial.phase.strip().casefold() == phase.strip().casefold()
+    )
+
+
+def is_low_coverage(coverage: float, threshold: float = LOW_COVERAGE_THRESHOLD) -> bool:
+    return coverage < threshold
+
+
 def calculate_similarity(
     protocol: Protocol,
     historical_trial: HistoricalTrial,
@@ -235,10 +261,10 @@ def calculate_similarity(
 ) -> SimilarityResult:
     """Compare protocol design fields with one historical trial.
 
-    The returned ``similarity_score`` is a weighted resemblance heuristic in
-    [0, 1]. Unknown/ambiguous fields are excluded from the weight denominator.
-    ``historical_outcome_class`` is attached for display only and is not used
-    in the score.
+    ``similarity_score`` is a weighted resemblance heuristic in [0, 1] over
+    comparable fields only. Unknown fields are excluded from the score
+    denominator. ``comparison_coverage`` is sum(weights of comparable fields)
+    / sum(weights of all similarity fields).
     """
     cfg = config or DEFAULT_CONFIG
     raw: list[tuple[str, FeatureStatus, float, str, str, str]] = []
@@ -326,6 +352,11 @@ def calculate_similarity(
     comparable_weight = sum(
         cfg.weights[name] for name, status, *_ in raw if status != "unknown"
     )
+    total_weight = sum(cfg.weights[name] for name in FEATURE_ORDER)
+    comparison_coverage = comparable_weight / total_weight if total_weight else 0.0
+    comparable_feature_count = sum(1 for _, status, *_ in raw if status != "unknown")
+    total_feature_count = len(FEATURE_ORDER)
+
     comparisons: list[FeatureComparison] = []
     score = 0.0
     for feature_name, status, similarity, proto_text, hist_text, explanation in raw:
@@ -353,6 +384,10 @@ def calculate_similarity(
         feature_comparisons=tuple(comparisons),
         historical_outcome_class=historical_trial.outcome_class,
         why_stopped=historical_trial.why_stopped,
+        comparable_feature_count=comparable_feature_count,
+        total_feature_count=total_feature_count,
+        comparison_coverage=comparison_coverage,
+        comparable_weight=comparable_weight,
     )
 
 
@@ -428,10 +463,15 @@ def compare_protocol_scenarios(
 def format_similarity_result(result: SimilarityResult) -> str:
     """Human-readable feature-by-feature explanation. Not a clinical recommendation."""
     percent = result.similarity_score * 100.0
+    coverage = result.comparison_coverage * 100.0
     lines = [
         f"{result.trial_id}",
         f"{result.trial_title}",
-        f"Similarity: {percent:.1f}% (resemblance heuristic, not a success probability)",
+        f"Historical similarity: {percent:.1f}% (resemblance heuristic, not a success probability)",
+        (
+            f"Comparison coverage: {coverage:.0f}% · "
+            f"{result.comparable_feature_count}/{result.total_feature_count} features available"
+        ),
         f"Historical outcome: {result.historical_outcome_class} (descriptive only; not a prediction)",
         "WHY THIS MATCH?",
     ]

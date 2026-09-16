@@ -1,4 +1,4 @@
-"""TrialTwin Streamlit presentation layer. Matching stays in the engine."""
+"""ProtocolNeighbor Streamlit presentation layer. Matching stays in the engine."""
 
 from __future__ import annotations
 
@@ -13,13 +13,28 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from trialtwin.amass_client import get_historical_trials, load_local_trials
+from trialtwin.amass_client import AmassError, get_historical_trials, load_local_trials
 from trialtwin.engine import (
     compare_protocol_scenarios,
     rank_historical_trials,
     summarize_historical_neighborhood,
 )
 from trialtwin.models import HistoricalTrial, Protocol
+from trialtwin.presentation import (
+    FEATURE_LABEL,
+    PARAM_TITLES,
+    candidate_set_caption,
+    coverage_line,
+    evidence_source_label,
+    format_why_value,
+    intervention_choices,
+    low_coverage_warning,
+    provenance_rows,
+    ranking_against_caption,
+    should_show_demo_outcomes,
+    source_badge,
+    source_is_live,
+)
 
 DISPLAY_TOP = 3
 LOCKED_DISEASE = "Alzheimer's disease"
@@ -34,31 +49,11 @@ STATUS_GLYPH = {
     "unknown": ":gray[?]",
 }
 
-FEATURE_LABEL = {
-    "disease": "Disease",
-    "phase": "Phase",
-    "disease_stage": "Disease stage",
-    "biomarker_strategy": "Biomarker",
-    "primary_endpoint": "Endpoint",
-    "duration_months": "Duration",
-    "sample_size": "Sample size",
-    "target": "Target",
-}
-
 OUTCOME_BADGE = {
     "favorable": ("FAVORABLE", "green"),
     "unfavorable": ("UNFAVORABLE", "red"),
     "unclear": ("UNCLEAR", "orange"),
     "unknown": ("UNKNOWN", "gray"),
-}
-
-PARAM_TITLES = {
-    "disease_stage": "Disease stage",
-    "biomarker_strategy": "Biomarker confirmation",
-    "duration_months": "Duration",
-    "primary_endpoint": "Primary endpoint",
-    "sample_size": "Sample size",
-    "target": "Target",
 }
 
 
@@ -82,30 +77,6 @@ def display_value(value: object) -> str:
     return str(value)
 
 
-def format_why_value(feature_name: str, raw: str) -> str:
-    if raw in {"unknown", "true", "false"} or raw.startswith("ambiguous:"):
-        if raw == "true":
-            return "Required"
-        if raw == "false":
-            return "Not required"
-        return "Unknown in source data"
-    if feature_name == "duration_months" and raw.isdigit():
-        return f"{raw} months"
-    return raw
-
-
-def target_choices(trials: list[HistoricalTrial]) -> list[str]:
-    options: list[str] = []
-    seen: set[str] = set()
-    for trial in trials:
-        if _is_unreliable(trial.target):
-            continue
-        if trial.target not in seen:
-            seen.add(trial.target)
-            options.append(trial.target)
-    return options
-
-
 @st.cache_data(ttl="1h", max_entries=4, show_spinner="Retrieving historical trials...")
 def load_cached_historical_set(use_live: bool) -> tuple[tuple[HistoricalTrial, ...], str, str]:
     result = get_historical_trials(use_live=use_live)
@@ -113,23 +84,16 @@ def load_cached_historical_set(use_live: bool) -> tuple[tuple[HistoricalTrial, .
 
 
 def load_trials_safely() -> tuple[tuple[HistoricalTrial, ...], str, str]:
+    """Live load with fallback only for expected Amass access failures."""
     try:
         return load_cached_historical_set(True)
-    except Exception:
+    except AmassError:
         local = tuple(load_local_trials())
-        return local, "LOCAL DEMO DATA", "Live retrieval failed. Showing the TrialTwin prototype dataset."
-
-
-def source_caption(source: str) -> tuple[str, str]:
-    if source == "LIVE AMASS":
-        return "AMASS TRIALCORE", "blue"
-    return "LOCAL DEMO DATA", "gray"
-
-
-def evidence_source_label(source: str) -> str:
-    if source == "LIVE AMASS":
-        return "Amass TrialCore"
-    return "TrialTwin prototype dataset"
+        return (
+            local,
+            "LOCAL DEMO DATA",
+            "Live retrieval failed. Showing synthetic demonstration records.",
+        )
 
 
 def build_protocol(
@@ -139,12 +103,12 @@ def build_protocol(
     duration_months: int,
     endpoint: str,
     sample_size: int,
-    target: str,
+    intervention: str,
 ) -> Protocol:
     return Protocol(
         disease=LOCKED_DISEASE,
         phase=LOCKED_PHASE,
-        target=target,
+        intervention=intervention,
         disease_stage=stage,
         biomarker_strategy=biomarker_label == "Required",
         sample_size=sample_size,
@@ -157,7 +121,7 @@ def protocol_fingerprint(protocol: Protocol) -> tuple:
     return (
         protocol.disease,
         protocol.phase,
-        protocol.target,
+        protocol.intervention,
         protocol.disease_stage,
         protocol.biomarker_strategy,
         protocol.sample_size,
@@ -173,7 +137,7 @@ def protocol_field_labels(protocol: Protocol) -> dict[str, str]:
         "duration_months": f"{protocol.duration_months} months",
         "primary_endpoint": protocol.primary_endpoint,
         "sample_size": str(protocol.sample_size),
-        "target": protocol.target,
+        "intervention": protocol.intervention,
     }
 
 
@@ -198,7 +162,7 @@ def apply_protocol_to_widgets(protocol: Protocol) -> None:
     st.session_state.protocol_duration = protocol.duration_months
     st.session_state.protocol_endpoint = protocol.primary_endpoint
     st.session_state.protocol_n = protocol.sample_size
-    st.session_state.protocol_target = protocol.target
+    st.session_state.protocol_intervention = protocol.intervention
 
 
 def neighborhood_shift_score(protocol_a: Protocol, protocol_b: Protocol, trials: list[HistoricalTrial]) -> float:
@@ -211,12 +175,12 @@ def neighborhood_shift_score(protocol_a: Protocol, protocol_b: Protocol, trials:
     return changed * 10 + abs(avg_a - avg_b)
 
 
-def pick_demo_protocols(trials: list[HistoricalTrial], target: str) -> tuple[Protocol, Protocol]:
+def pick_demo_protocols(trials: list[HistoricalTrial], intervention: str) -> tuple[Protocol, Protocol]:
     """Choose a one-parameter flip that actually moves the neighborhood."""
     base = Protocol(
         disease=LOCKED_DISEASE,
         phase=LOCKED_PHASE,
-        target=target,
+        intervention=intervention,
         disease_stage="Early",
         biomarker_strategy=True,
         sample_size=1200,
@@ -292,37 +256,62 @@ def before_after_chart(ranking_a, ranking_b) -> go.Figure:
 def render_why(result) -> None:
     st.caption(":green[✓] Exact  ·  :blue[~] Similar  ·  :red[—] Different  ·  :gray[?] Unknown")
     lines = [
-        "| Feature | Your protocol | Historical trial | |",
+        "| Feature | Your protocol | Historical trial | Status |",
         "| --- | --- | --- | --- |",
     ]
     for item in result.feature_comparisons:
+        status = "Unknown" if item.status == "unknown" else item.status.title()
         lines.append(
             f"| {FEATURE_LABEL[item.feature_name]} | "
             f"{format_why_value(item.feature_name, item.protocol_value)} | "
             f"{format_why_value(item.feature_name, item.historical_value)} | "
-            f"{STATUS_GLYPH[item.status]} |"
+            f"{STATUS_GLYPH[item.status]} {status} |"
         )
     st.markdown("\n".join(lines))
 
 
 def render_evidence(trial: HistoricalTrial, source: str) -> None:
     duration = (
-        "Unknown in source data"
+        "Unavailable in TrialCore (not inferred from calendar dates)"
         if trial.duration_months is None
         else f"{trial.duration_months} months"
     )
+    span = (
+        "Unknown in source data"
+        if trial.study_span_months is None
+        else f"{trial.study_span_months} months"
+    )
+    endpoint_raw = trial.primary_endpoint_raw or trial.primary_endpoint
     rows = [
         ("Phase", display_value(trial.phase)),
         ("Participants", display_value(trial.sample_size)),
         ("Population / disease stage", display_value(trial.disease_stage)),
         ("Biomarker", display_value(trial.biomarker_strategy)),
-        ("Duration", duration),
-        ("Primary endpoint", display_value(trial.primary_endpoint)),
-        ("Historical outcome", OUTCOME_BADGE.get(trial.outcome_class, ("UNKNOWN", "gray"))[0]),
+        ("Protocol duration", duration),
+        ("Study calendar span", span),
+        ("Primary endpoint (canonical)", display_value(trial.primary_endpoint)),
+        ("Primary endpoint (source)", display_value(endpoint_raw)),
+        ("Intervention", display_value(trial.intervention)),
         ("Source", evidence_source_label(source)),
     ]
     for label, value in rows:
         st.markdown(f"**{label}**  \n{value}")
+
+    if should_show_demo_outcomes(source):
+        outcome = OUTCOME_BADGE.get(trial.outcome_class, ("UNKNOWN", "gray"))[0]
+        st.markdown(f"**Demo outcome labels**  \n{outcome}")
+        st.caption("Synthetic demonstration labels. Not inferred from a live registry status.")
+    else:
+        st.caption(
+            "Validated historical outcome classification is not available from the current TrialCore record."
+        )
+
+    for label, value in provenance_rows(trial):
+        st.markdown(f"**{label}**  \n{value}")
+    if trial.source_url:
+        st.link_button("Open original trial record ↗", trial.source_url)
+    elif source_is_live(source):
+        st.caption("Source URL unavailable")
 
 
 def render_rank_list(results) -> None:
@@ -336,19 +325,26 @@ def render_rank_list(results) -> None:
 def render_match_card(
     result, trial_by_id: dict[str, HistoricalTrial], source: str, rank: int
 ) -> None:
-    outcome_text, outcome_color = OUTCOME_BADGE.get(
-        result.historical_outcome_class, ("UNKNOWN", "gray")
-    )
     rank_color = "violet" if rank == 1 else "blue" if rank == 2 else "gray"
     with st.container(border=True):
         title_col, score_col = st.columns([3.2, 1.2], vertical_alignment="center")
         with title_col:
             st.badge(f"Match {rank}", color=rank_color)
             st.markdown(f"**{result.trial_title}**")
-            st.badge(outcome_text, color=outcome_color)
+            if should_show_demo_outcomes(source):
+                outcome_text, outcome_color = OUTCOME_BADGE.get(
+                    result.historical_outcome_class, ("UNKNOWN", "gray")
+                )
+                st.badge(f"Demo · {outcome_text}", color=outcome_color)
+            if low_coverage_warning(result):
+                st.badge("LOW COVERAGE", color="orange")
         with score_col:
             st.metric("Historical similarity", f"{result.similarity_score * 100:.1f}%")
+            st.caption(coverage_line(result))
         st.progress(min(max(result.similarity_score, 0.0), 1.0))
+        warning = low_coverage_warning(result)
+        if warning:
+            st.caption(warning)
         with st.expander("Why this match?", expanded=rank == 1):
             render_why(result)
         trial = trial_by_id.get(result.trial_id)
@@ -419,7 +415,7 @@ def render_what_if(protocol_a: Protocol, protocol_b: Protocol, trials: list[Hist
 
 def main() -> None:
     st.set_page_config(
-        page_title="TrialTwin",
+        page_title="ProtocolNeighbor",
         page_icon=":material/biotech:",
         layout="wide",
         initial_sidebar_state="collapsed",
@@ -444,9 +440,9 @@ def main() -> None:
         cached_trials, source, note = load_trials_safely()
 
     if st.session_state.demo_pending and cached_trials is not None:
-        options = target_choices(list(cached_trials)) or ["amyloid-beta"]
-        demo_target = "amyloid-beta" if "amyloid-beta" in options else options[0]
-        protocol_a, protocol_b = pick_demo_protocols(list(cached_trials), demo_target)
+        options = intervention_choices(list(cached_trials)) or ["amyloid-beta"]
+        demo_intervention = "amyloid-beta" if "amyloid-beta" in options else options[0]
+        protocol_a, protocol_b = pick_demo_protocols(list(cached_trials), demo_intervention)
         st.session_state.scenario_a = protocol_a
         apply_protocol_to_widgets(protocol_b)
         st.session_state.demo_pending = False
@@ -489,8 +485,8 @@ def main() -> None:
         </style>
         <div class="tt-hero">
           <div class="tt-kicker">Amass TrialCore · prototype</div>
-          <h1>TrialTwin</h1>
-          <p>Explore how a proposed trial compares with historical evidence. Change one design choice and watch the neighborhood move.</p>
+          <h1>ProtocolNeighbor</h1>
+          <p>Change your protocol, and see which historical trials it starts to resemble.</p>
         </div>
         """
     )
@@ -519,6 +515,7 @@ def main() -> None:
                 "Duration (months)",
                 [12, 18, 24, 36],
                 key="protocol_duration",
+                help="Protocol duration is compared only when a semantically equivalent historical duration is available.",
             ) or 18
             endpoint = st.segmented_control(
                 "Primary endpoint",
@@ -526,12 +523,14 @@ def main() -> None:
                 key="protocol_endpoint",
             ) or "CDR-SB"
             sample_size = st.slider("Sample size", min_value=200, max_value=4000, step=50, key="protocol_n")
-            target_source = list(cached_trials) if cached_trials else load_local_trials()
-            target_options = target_choices(target_source) or ["amyloid-beta"]
-            default_target = "amyloid-beta" if "amyloid-beta" in target_options else target_options[0]
-            if st.session_state.get("protocol_target") not in target_options:
-                st.session_state.protocol_target = default_target
-            target = st.selectbox("Target", target_options, key="protocol_target")
+            intervention_source = list(cached_trials) if cached_trials else load_local_trials()
+            intervention_options = intervention_choices(intervention_source) or ["amyloid-beta"]
+            default_intervention = (
+                "amyloid-beta" if "amyloid-beta" in intervention_options else intervention_options[0]
+            )
+            if st.session_state.get("protocol_intervention") not in intervention_options:
+                st.session_state.protocol_intervention = default_intervention
+            intervention = st.selectbox("Intervention", intervention_options, key="protocol_intervention")
             recap = st.container(horizontal=True)
             with recap:
                 st.badge(str(stage), color="violet")
@@ -556,25 +555,29 @@ def main() -> None:
         duration_months=int(duration_months),
         endpoint=endpoint,
         sample_size=int(sample_size),
-        target=target,
+        intervention=intervention,
     )
     if st.session_state.pop("capture_scenario_a", False):
         st.session_state.scenario_a = protocol
 
     with neighborhood_col:
         st.header("Historical neighborhood")
-        st.caption("Historical trials with the most similar protocol designs.")
         if not st.session_state.matches_requested or cached_trials is None:
             source_placeholder.badge("SOURCE PENDING", color="gray")
             with st.container(border=True):
                 st.markdown("### Ready when you are")
                 st.markdown("Find historical matches to load evidence, then change **one** design choice.")
-                st.caption("Historical similarity is a resemblance heuristic, not a probability of success or failure.")
+                st.caption("Historical similarity is resemblance among comparable protocol features, not a probability of success.")
             return
 
         trials = cached_trials
-        badge_label, badge_color = source_caption(source)
+        badge_label, badge_color = source_badge(source)
         source_placeholder.badge(badge_label, color=badge_color)
+        st.caption(candidate_set_caption(len(trials)))
+        st.caption(ranking_against_caption(len(trials)))
+        st.caption(
+            "Protocol duration is compared only when a semantically equivalent historical duration is available."
+        )
         if note:
             st.caption(note)
         if not trials:
@@ -582,20 +585,28 @@ def main() -> None:
             return
 
         ranked = rank_historical_trials(protocol, list(trials))
-        summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
         trial_by_id = {trial.id: trial for trial in trials}
-        st.caption("Historical similarity is a resemblance heuristic, not a probability of success or failure.")
+        st.caption(
+            "Similarity compares available protocol design features. "
+            "Coverage tells you how much comparable data was actually available."
+        )
         for index, result in enumerate(ranked[:DISPLAY_TOP], start=1):
             render_match_card(result, trial_by_id, source, index)
 
-        with st.container(border=True):
-            st.markdown("**Historical outcome profile**")
-            st.caption("Descriptive counts among the closest historical designs.")
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("Favorable", summary.favorable)
-            c2.metric("Unfavorable", summary.unfavorable)
-            c3.metric("Unclear", summary.unclear)
-            c4.metric("Unknown", summary.unknown)
+        if should_show_demo_outcomes(source):
+            summary = summarize_historical_neighborhood(ranked, top_k=DISPLAY_TOP)
+            with st.container(border=True):
+                st.markdown("**Demo outcome labels**")
+                st.caption("Synthetic demonstration counts among the closest designs. Not a live TrialCore classification.")
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Favorable", summary.favorable)
+                c2.metric("Unfavorable", summary.unfavorable)
+                c3.metric("Unclear", summary.unclear)
+                c4.metric("Unknown", summary.unknown)
+        else:
+            st.caption(
+                "Validated historical outcome classification is not available from the current TrialCore record."
+            )
 
     protocol_a = st.session_state.scenario_a or protocol
     st.session_state.scenario_a = protocol_a

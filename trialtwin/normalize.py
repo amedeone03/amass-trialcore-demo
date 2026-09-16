@@ -11,13 +11,15 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Any
+from urllib.parse import urlparse
 
+from trialtwin.endpoints import canonicalize_endpoint_list
 from trialtwin.models import HistoricalTrial
 
 UNKNOWN = "unknown"
 AMBIGUOUS_PREFIX = "ambiguous: "
 
-# Official TrialCore phase enums → display labels used by TrialTwin.
+# Official TrialCore phase enums → display labels used by ProtocolNeighbor.
 PHASE_LABELS = {
     "EARLY_PHASE1": "Early Phase I",
     "PHASE1": "Phase I",
@@ -27,6 +29,18 @@ PHASE_LABELS = {
     "PHASE3": "Phase III",
     "PHASE4": "Phase IV",
     "NA": "N/A",
+}
+
+REGISTRY_LABELS = {
+    "clinicaltrials_gov": "ClinicalTrials.gov",
+    "euctr": "EUCTR",
+    "ctis": "CTIS",
+    "chictr": "ChiCTR",
+    "isrctn": "ISRCTN",
+    "anzctr": "ANZCTR",
+    "jprn": "JPRN",
+    "ctri": "CTRI",
+    "drks": "DRKS",
 }
 
 
@@ -75,10 +89,11 @@ def _parse_iso_date(value: Any) -> date | None:
     return None
 
 
-def _duration_months(record: dict[str, Any]) -> int | None:
-    """Calendar span from startDate to completionDate, if both parse.
+def _study_span_months(record: dict[str, Any]) -> int | None:
+    """Calendar span from startDate to completionDate.
 
-    This is not treatment-duration. TrialCore has no dedicated duration field.
+    This is study calendar span, not protocol/treatment/follow-up duration.
+    It must never populate ``duration_months`` or enter similarity.
     """
     start = _parse_iso_date(record.get("startDate"))
     end = _parse_iso_date(record.get("completionDate"))
@@ -139,10 +154,10 @@ def _disease(record: dict[str, Any]) -> str:
     return _one_or_ambiguous(_string_list(record.get("conditions")))
 
 
-def _target(record: dict[str, Any]) -> str:
-    """Map intervention names when present; otherwise intervention MeSH terms.
+def _intervention(record: dict[str, Any]) -> str:
+    """Intervention names, then MeSH terms. Not a biological target.
 
-    Multiple names are ambiguous. A biomarker mention in free text is ignored.
+    Multiple names stay ambiguous. No silent first-item pick.
     """
     names = _string_list(record.get("interventionNames"))
     if names:
@@ -150,8 +165,9 @@ def _target(record: dict[str, Any]) -> str:
     return _one_or_ambiguous(_string_list(record.get("interventionMeshTerms")))
 
 
-def _primary_endpoint(record: dict[str, Any]) -> str:
-    return _one_or_ambiguous(_string_list(record.get("primaryOutcomeMeasures")))
+def _primary_endpoint_fields(record: dict[str, Any]) -> tuple[str, str]:
+    measures = _string_list(record.get("primaryOutcomeMeasures"))
+    return canonicalize_endpoint_list(measures)
 
 
 def _why_stopped(record: dict[str, Any]) -> str:
@@ -160,31 +176,70 @@ def _why_stopped(record: dict[str, Any]) -> str:
 
 
 def _outcome_class() -> str:
-    """TrialCore has no success/failure classification. Always unknown."""
+    """TrialCore has no validated success/failure classification."""
     return "unknown"
+
+
+def _http_url(value: Any) -> str | None:
+    text = _as_str(value)
+    if text is None:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme in {"http", "https"} and parsed.netloc:
+        return text
+    return None
+
+
+def _provenance(record: dict[str, Any]) -> dict[str, str | None]:
+    amass_id = _as_str(record.get("amassId"))
+    registry_id = _as_str(record.get("registryId")) or _as_str(record.get("nctId"))
+    source_registry = _as_str(record.get("sourceRegistry"))
+    source_url = _http_url(record.get("sourceUrl"))
+    return {
+        "amass_id": amass_id,
+        "registry_id": registry_id,
+        "source_registry": source_registry,
+        "source_url": source_url,
+    }
+
+
+def registry_display_name(source_registry: str | None) -> str:
+    if not source_registry:
+        return UNKNOWN
+    return REGISTRY_LABELS.get(source_registry, source_registry)
 
 
 def normalize_amass_record(record: Any) -> HistoricalTrial:
     """Convert one TrialCore record dict into a HistoricalTrial.
 
     Raises NormalizationSkip if the record is not an object or has no id.
+    Live duration_months is always None: TrialCore start/completion dates are
+    calendar span, not protocol duration.
     """
     if not isinstance(record, dict):
         raise NormalizationSkip("record is not a JSON object")
 
+    canonical, raw = _primary_endpoint_fields(record)
+    provenance = _provenance(record)
     return HistoricalTrial(
         id=_trial_id(record),
         title=_title(record),
         disease=_disease(record),
         phase=_phase(record),
-        target=_target(record),
+        intervention=_intervention(record),
         disease_stage=UNKNOWN,
         biomarker_strategy=None,
         sample_size=_sample_size(record),
-        duration_months=_duration_months(record),
-        primary_endpoint=_primary_endpoint(record),
+        duration_months=None,
+        primary_endpoint=canonical,
         outcome_class=_outcome_class(),  # type: ignore[arg-type]
         why_stopped=_why_stopped(record),
+        primary_endpoint_raw=raw,
+        study_span_months=_study_span_months(record),
+        amass_id=provenance["amass_id"],
+        registry_id=provenance["registry_id"],
+        source_registry=provenance["source_registry"],
+        source_url=provenance["source_url"],
     )
 
 
@@ -195,9 +250,17 @@ def normalize_amass_records(records: Any) -> tuple[list[HistoricalTrial], list[s
 
     trials: list[HistoricalTrial] = []
     skipped: list[str] = []
+    seen: set[str] = set()
     for index, record in enumerate(records):
         try:
-            trials.append(normalize_amass_record(record))
+            trial = normalize_amass_record(record)
         except NormalizationSkip as exc:
             skipped.append(f"index {index}: {exc}")
+            continue
+        key = trial.amass_id or trial.registry_id or trial.id
+        if key in seen:
+            skipped.append(f"index {index}: duplicate {key}")
+            continue
+        seen.add(key)
+        trials.append(trial)
     return trials, skipped
