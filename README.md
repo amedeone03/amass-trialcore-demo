@@ -21,11 +21,19 @@
   DTU Skylab × Cursor × Amass · September 2026
 </p>
 
+<p align="center">
+  <a href="https://share.streamlit.io/deploy?repository=amedeone03/amass-trialcore-demo&branch=main&mainModule=app.py">
+    <img alt="Open in Streamlit" src="https://static.streamlit.io/badges/streamlit_badge_black_white.svg">
+  </a>
+</p>
+
 ---
 
 ## Working demo
 
-No extra setup beyond Python. The in-app **Demo scenario** loads history (live TrialCore if you have a key, otherwise the bundled prototype set) and flips **one** protocol parameter so the neighborhood actually moves.
+**One-click (Streamlit Community Cloud):** [Deploy this repo](https://share.streamlit.io/deploy?repository=amedeone03/amass-trialcore-demo&branch=main&mainModule=app.py) — sign in with GitHub, keep `app.py` as the entry file, then click **Deploy**. The app runs on the bundled prototype data without an Amass key.
+
+**On your machine:**
 
 ```bash
 pip install -r requirements.txt
@@ -35,10 +43,6 @@ streamlit run app.py
 Open [http://localhost:8501](http://localhost:8501) → click **Demo scenario**.
 
 That is the demo: a protocol on the left, closest historical twins on the right, then a **What if?** shift when a knob changes.
-
-<p align="center">
-  <img src="docs/neighborhood.png" alt="Closest historical trials with similarity scores" width="920">
-</p>
 
 <p align="center">
   <img src="docs/what-if.png" alt="What-if neighborhood change after one protocol edit" width="920">
