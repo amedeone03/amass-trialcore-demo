@@ -37,8 +37,9 @@ from trialtwin.presentation import (
     source_is_live,
 )
 from trialtwin.visualization import (
+    MatchProfile,
     NeighborhoodShift,
-    build_match_fingerprint,
+    build_match_profile,
     build_similarity_coverage_points,
     calculate_neighborhood_shift,
     concise_trial_label,
@@ -304,23 +305,93 @@ def coverage_scatter_chart(points) -> go.Figure:
     return fig
 
 
-def render_why(result) -> None:
-    st.markdown("**Match fingerprint**")
-    st.caption("Exact · Similar · Different · Unknown — status only, not a separate score.")
-    bars = ['<div class="tt-fp">']
-    for row in build_match_fingerprint(result):
-        width = row.fill * 10
-        bars.append(
-            "<div class='tt-fp-row'>"
-            f"<span class='tt-fp-label'>{row.label}</span>"
-            "<span class='tt-fp-track'>"
-            f"<span class='tt-fp-fill' style='width:{width}%'></span>"
-            "</span>"
-            f"<span class='tt-fp-status'>{row.status}</span>"
-            "</div>"
+def match_profile_chart(profile: MatchProfile) -> go.Figure:
+    """Polar display of engine feature resemblance (0–1 shown as 0–100)."""
+    labels = [axis.label for axis in profile.axes]
+    r_values: list[float | None] = []
+    theta_values: list[str] = []
+    hover: list[str] = []
+    for axis in profile.axes:
+        if not axis.available or axis.display_pct is None:
+            continue
+        r_values.append(axis.display_pct)
+        theta_values.append(axis.label)
+        hover.append(
+            f"{axis.label}<br>Resemblance {axis.display_pct:.0f}%<br>{axis.status}"
         )
-    bars.append("</div>")
-    st.html("".join(bars))
+    if r_values:
+        r_values.append(r_values[0])
+        theta_values.append(theta_values[0])
+        hover.append(hover[0])
+
+    fig = go.Figure()
+    fig.add_trace(
+        go.Scatterpolar(
+            r=r_values,
+            theta=theta_values,
+            fill="toself",
+            mode="lines+markers",
+            name="Feature-level resemblance",
+            line=dict(color="#A78BFA", width=2),
+            fillcolor="rgba(167, 139, 250, 0.28)",
+            marker=dict(size=8, color="#22D3EE"),
+            hovertext=hover,
+            hoverinfo="text",
+        )
+    )
+    ticktext = [
+        axis.label if axis.available else f"{axis.label} · unk"
+        for axis in profile.axes
+    ]
+    fig.update_layout(
+        paper_bgcolor="rgba(0,0,0,0)",
+        polar=dict(
+            bgcolor="rgba(8,12,24,0.45)",
+            radialaxis=dict(
+                range=[0, 100],
+                tickvals=[0, 25, 50, 75, 100],
+                showline=False,
+                gridcolor="rgba(148,163,184,0.28)",
+                tickfont=dict(size=10, color="#9CA3AF"),
+            ),
+            angularaxis=dict(
+                categoryorder="array",
+                categoryarray=labels,
+                tickvals=labels,
+                ticktext=ticktext,
+                rotation=90,
+                direction="clockwise",
+                gridcolor="rgba(148,163,184,0.22)",
+                linecolor="rgba(148,163,184,0.35)",
+                tickfont=dict(size=11, color="#E5E7EB"),
+            ),
+        ),
+        showlegend=False,
+        font=dict(color="#E5E7EB", family="IBM Plex Sans"),
+        height=340,
+        margin=dict(l=48, r=48, t=28, b=28),
+    )
+    return fig
+
+
+def render_why(result) -> None:
+    profile = build_match_profile(result)
+    st.markdown("**Match profile**")
+    st.caption(
+        "Feature-level resemblance for this historical match. Missing features are not scored."
+    )
+    st.caption(
+        f"Comparison coverage {result.comparison_coverage * 100:.0f}% · "
+        f"{result.comparable_feature_count} / {result.total_feature_count} features available"
+    )
+    if profile.can_draw:
+        st.plotly_chart(match_profile_chart(profile), config={"displayModeBar": False})
+    else:
+        st.caption(profile.empty_reason)
+    status_left, status_right = st.columns(2)
+    for index, axis in enumerate(profile.axes):
+        target = status_left if index % 2 == 0 else status_right
+        target.markdown(f"{axis.label} — {axis.status}")
     with st.expander("Feature table"):
         lines = [
             "| Feature | Your protocol | Historical trial | Status |",
@@ -559,12 +630,6 @@ def main() -> None:
           text-overflow: clip !important;
           white-space: nowrap;
         }
-        .tt-fp { display: flex; flex-direction: column; gap: 0.32rem; margin: 0.2rem 0 0.35rem; }
-        .tt-fp-row { display: grid; grid-template-columns: 7.2rem minmax(4rem,1fr) 5.2rem; gap: 0.7rem; align-items: center; }
-        .tt-fp-label { color: #D1D5DB; font-size: 0.86rem; }
-        .tt-fp-track { height: 0.55rem; border-radius: 999px; background: rgba(148,163,184,.22); overflow: hidden; }
-        .tt-fp-fill { display: block; height: 100%; border-radius: 999px; background: linear-gradient(90deg, #7C3AED, #22D3EE); }
-        .tt-fp-status { color: #A5B4FC; font-size: 0.8rem; letter-spacing: .04em; text-transform: uppercase; }
         </style>
         <div class="tt-hero">
           <div class="tt-kicker">DTU Skylab × Cursor × Amass · Hackathon prototype</div>

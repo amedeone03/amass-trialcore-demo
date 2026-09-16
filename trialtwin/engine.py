@@ -97,7 +97,12 @@ DEFAULT_CONFIG = SimilarityConfig()
 
 @dataclass(frozen=True)
 class FeatureComparison:
-    """One protocol feature compared with one historical-trial feature."""
+    """One protocol feature compared with one historical-trial feature.
+
+    ``similarity`` is the feature-level resemblance in [0, 1] before weight
+    renormalization, or None when the field is unknown. ``contribution`` is
+    that value after comparable-weight renormalization and is not a radar axis.
+    """
 
     feature_name: str
     protocol_value: str
@@ -105,6 +110,7 @@ class FeatureComparison:
     status: FeatureStatus
     contribution: float
     explanation: str
+    similarity: float | None
 
 
 @dataclass(frozen=True)
@@ -374,6 +380,7 @@ def calculate_similarity(
                 status=status,
                 contribution=contribution,
                 explanation=explanation,
+                similarity=None if status == "unknown" else similarity,
             )
         )
 

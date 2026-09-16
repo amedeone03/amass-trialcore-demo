@@ -12,6 +12,7 @@ from trialtwin.presentation import DEMO_PROTOCOL_A, DEMO_PROTOCOL_B
 from trialtwin.visualization import (
     CoveragePoint,
     build_match_fingerprint,
+    build_match_profile,
     build_similarity_coverage_points,
     calculate_neighborhood_shift,
     concise_trial_label,
@@ -149,6 +150,133 @@ class VisualizationHelperTests(unittest.TestCase):
         self.assertEqual(unknown_rows["duration_months"].status, "Unknown")
         self.assertEqual(unknown_rows["duration_months"].fill, 0)
         self.assertEqual(unknown_rows["disease_stage"].status, "Unknown")
+
+    def test_match_profile_preserves_engine_values(self) -> None:
+        result = calculate_similarity(_protocol(), _trial("T"))
+        profile = build_match_profile(result)
+        labels = [axis.label for axis in profile.axes]
+        self.assertEqual(
+            labels,
+            ["Intervention", "Disease stage", "Biomarker", "Endpoint", "Duration", "Sample size"],
+        )
+        by_name = {axis.feature_name: axis for axis in profile.axes}
+        self.assertTrue(profile.can_draw)
+        self.assertEqual(profile.comparable_count, 6)
+        self.assertEqual(by_name["intervention"].similarity, 1.0)
+        self.assertEqual(by_name["intervention"].display_pct, 100.0)
+        self.assertEqual(by_name["intervention"].status, "Exact")
+        self.assertEqual(by_name["sample_size"].similarity, 1.0)
+        engine_by_name = {item.feature_name: item for item in result.feature_comparisons}
+        self.assertEqual(engine_by_name["intervention"].similarity, 1.0)
+
+        numeric_trial = HistoricalTrial(
+            id="N",
+            title="n",
+            disease="Alzheimer's disease",
+            phase="Phase III",
+            intervention="amyloid-beta",
+            disease_stage="early",
+            biomarker_strategy=True,
+            sample_size=800,
+            duration_months=18,
+            primary_endpoint="CDR-SB",
+            outcome_class="unknown",
+            why_stopped="unknown",
+        )
+        numeric = calculate_similarity(_protocol(), numeric_trial)
+        sample = next(item for item in numeric.feature_comparisons if item.feature_name == "sample_size")
+        expected = max(0.0, 1.0 - abs(1800 - 800) / 2000.0)
+        self.assertAlmostEqual(sample.similarity, expected)
+        axis = {item.feature_name: item for item in build_match_profile(numeric).axes}["sample_size"]
+        self.assertAlmostEqual(axis.similarity, expected)
+        self.assertAlmostEqual(axis.display_pct, expected * 100.0)
+        self.assertEqual(axis.status, "Similar")
+
+    def test_match_profile_unknown_is_not_a_midpoint(self) -> None:
+        sparse = HistoricalTrial(
+            id="U",
+            title="u",
+            disease="Alzheimer's disease",
+            phase="Phase III",
+            intervention="amyloid-beta",
+            disease_stage="unknown",
+            biomarker_strategy=True,
+            sample_size=1800,
+            duration_months=None,
+            primary_endpoint="CDR-SB",
+            outcome_class="unknown",
+            why_stopped="unknown",
+        )
+        result = calculate_similarity(_protocol(), sparse)
+        duration = next(item for item in result.feature_comparisons if item.feature_name == "duration_months")
+        self.assertIsNone(duration.similarity)
+        profile = build_match_profile(result)
+        by_name = {axis.feature_name: axis for axis in profile.axes}
+        self.assertFalse(by_name["duration_months"].available)
+        self.assertIsNone(by_name["duration_months"].similarity)
+        self.assertIsNone(by_name["duration_months"].display_pct)
+        self.assertEqual(by_name["duration_months"].status, "Unknown")
+        self.assertNotEqual(by_name["duration_months"].display_pct, 50.0)
+        self.assertTrue(profile.can_draw)
+
+    def test_match_profile_too_few_axes(self) -> None:
+        sparse = HistoricalTrial(
+            id="LIVE-LIKE",
+            title="partial",
+            disease="Alzheimer's disease",
+            phase="Phase III",
+            intervention="amyloid-beta",
+            disease_stage="unknown",
+            biomarker_strategy=None,
+            sample_size=None,
+            duration_months=None,
+            primary_endpoint="unknown",
+            outcome_class="unknown",
+            why_stopped="unknown",
+        )
+        result = calculate_similarity(_protocol(), sparse)
+        profile = build_match_profile(result)
+        self.assertEqual(profile.comparable_count, 1)
+        self.assertFalse(profile.can_draw)
+        self.assertIn("Not enough comparable dimensions", profile.empty_reason)
+        by_name = {axis.feature_name: axis for axis in profile.axes}
+        self.assertTrue(by_name["intervention"].available)
+        self.assertFalse(by_name["duration_months"].available)
+
+    def test_demo_match_profile_is_six_axis(self) -> None:
+        trials, _source, _note, _protocol_a, protocol_b = demo_scenario_bundle()
+        ranking = rank_historical_trials(protocol_b, list(trials))
+        profile = build_match_profile(ranking[0])
+        self.assertEqual(len(profile.axes), 6)
+        self.assertTrue(profile.can_draw)
+        self.assertEqual(profile.comparable_count, 6)
+        self.assertAlmostEqual(profile.comparison_coverage, ranking[0].comparison_coverage)
+        self.assertTrue(any(axis.status == "Exact" for axis in profile.axes))
+        self.assertTrue(any(axis.status == "Different" for axis in profile.axes))
+
+    def test_radar_values_independent_from_coverage(self) -> None:
+        full = calculate_similarity(_protocol(), _trial("F"))
+        sparse = HistoricalTrial(
+            id="S",
+            title="s",
+            disease="Alzheimer's disease",
+            phase="Phase III",
+            intervention="amyloid-beta",
+            disease_stage="unknown",
+            biomarker_strategy=None,
+            sample_size=1800,
+            duration_months=None,
+            primary_endpoint="unknown",
+            outcome_class="unknown",
+            why_stopped="unknown",
+        )
+        limited = calculate_similarity(_protocol(), sparse)
+        self.assertGreater(full.comparison_coverage, limited.comparison_coverage)
+        full_axis = {axis.feature_name: axis for axis in build_match_profile(full).axes}["intervention"]
+        limited_axis = {axis.feature_name: axis for axis in build_match_profile(limited).axes}["intervention"]
+        self.assertEqual(full_axis.similarity, limited_axis.similarity)
+        self.assertEqual(full_axis.display_pct, limited_axis.display_pct)
+        self.assertNotEqual(full.comparison_coverage, limited.comparison_coverage)
 
     def test_scatter_empty_ranking(self) -> None:
         self.assertEqual(build_similarity_coverage_points([], []), ())

@@ -19,13 +19,7 @@ STATUS_TO_FINGERPRINT: dict[str, FingerprintStatus] = {
     "unknown": "Unknown",
 }
 
-# Visual fill only — not a clinical or engine score.
-STATUS_FILL: dict[str, int] = {
-    "match": 10,
-    "partial": 7,
-    "mismatch": 3,
-    "unknown": 0,
-}
+MIN_RADAR_AXES = 3
 
 SHIFT_LINE_COLORS = (
     "#A78BFA",
@@ -77,6 +71,25 @@ class FingerprintRow:
     status: FingerprintStatus
     fill: int
     bar: str
+
+
+@dataclass(frozen=True)
+class MatchProfileAxis:
+    feature_name: str
+    label: str
+    status: FingerprintStatus
+    available: bool
+    similarity: float | None
+    display_pct: float | None
+
+
+@dataclass(frozen=True)
+class MatchProfile:
+    axes: tuple[MatchProfileAxis, ...]
+    comparable_count: int
+    can_draw: bool
+    empty_reason: str
+    comparison_coverage: float
 
 
 @dataclass(frozen=True)
@@ -248,22 +261,69 @@ def calculate_neighborhood_shift(
 
 
 def build_match_fingerprint(result: SimilarityResult) -> tuple[FingerprintRow, ...]:
-    by_name = {item.feature_name: item for item in result.feature_comparisons}
+    profile = build_match_profile(result)
     rows: list[FingerprintRow] = []
-    for name in FEATURE_ORDER:
-        item = by_name.get(name)
-        status_key = item.status if item is not None else "unknown"
-        fill = STATUS_FILL.get(status_key, 0)
+    for axis in profile.axes:
+        fill = 0 if not axis.available else int(round((axis.similarity or 0.0) * 10))
         rows.append(
             FingerprintRow(
-                feature_name=name,
-                label=FEATURE_LABEL.get(name, name),
-                status=STATUS_TO_FINGERPRINT.get(status_key, "Unknown"),
+                feature_name=axis.feature_name,
+                label=axis.label,
+                status=axis.status,
                 fill=fill,
                 bar=("█" * fill) + ("░" * (10 - fill)),
             )
         )
     return tuple(rows)
+
+
+def build_match_profile(result: SimilarityResult, *, min_axes: int = MIN_RADAR_AXES) -> MatchProfile:
+    """Feature-level resemblance for radar display. Does not recompute scores.
+
+    ``similarity`` comes from FeatureComparison (engine 0–1 value, None if
+    unknown). Unknown is never filled with a midpoint. Display percent is
+    similarity * 100 only.
+    """
+    by_name = {item.feature_name: item for item in result.feature_comparisons}
+    axes: list[MatchProfileAxis] = []
+    for name in FEATURE_ORDER:
+        item = by_name.get(name)
+        if item is None or item.status == "unknown" or item.similarity is None:
+            axes.append(
+                MatchProfileAxis(
+                    feature_name=name,
+                    label=FEATURE_LABEL.get(name, name),
+                    status="Unknown",
+                    available=False,
+                    similarity=None,
+                    display_pct=None,
+                )
+            )
+            continue
+        axes.append(
+            MatchProfileAxis(
+                feature_name=name,
+                label=FEATURE_LABEL.get(name, name),
+                status=STATUS_TO_FINGERPRINT.get(item.status, "Unknown"),
+                available=True,
+                similarity=item.similarity,
+                display_pct=item.similarity * 100.0,
+            )
+        )
+    comparable_count = sum(1 for axis in axes if axis.available)
+    can_draw = comparable_count >= min_axes
+    empty_reason = (
+        ""
+        if can_draw
+        else "Not enough comparable dimensions for a radar profile."
+    )
+    return MatchProfile(
+        axes=tuple(axes),
+        comparable_count=comparable_count,
+        can_draw=can_draw,
+        empty_reason=empty_reason,
+        comparison_coverage=result.comparison_coverage,
+    )
 
 
 def build_similarity_coverage_points(
