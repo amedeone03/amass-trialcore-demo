@@ -1,0 +1,22 @@
+[theme]
+base = "dark"
+primaryColor = "#5B8DEF"
+backgroundColor = "#0B1220"
+secondaryBackgroundColor = "#151D2E"
+textColor = "#E8EEF7"
+linkColor = "#8BB4FF"
+borderColor = "#243044"
+font = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+headingFont = "IBM Plex Sans:https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@500;600;700&display=swap"
+codeFont = "IBM Plex Mono:https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&display=swap"
+redColor = "#E05A5A"
+orangeColor = "#D4A017"
+greenColor = "#3D9A6A"
+blueColor = "#5B8DEF"
+grayColor = "#8A97AB"
+
+[client]
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false
