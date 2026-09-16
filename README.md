@@ -54,7 +54,7 @@ Alzheimer's disease and Phase III define the candidate pool; they are not part o
 
 **Live Amass** — TrialCore records where available, with registry links when Amass provides `sourceUrl`.
 
-**Demo** — Bundled synthetic records for a deterministic demonstration (`Demo scenario` never calls Amass).
+**Demo** — Bundled synthetic records for a deterministic demonstration (`Run demo` never calls Amass).
 
 ## Quick start
 

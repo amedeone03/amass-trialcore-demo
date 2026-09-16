@@ -1,24 +1,32 @@
 # Capture the TrialTwin demo GIF
 
-Recommended recording: 8–15 seconds.
+Recommended recording: 10–15 seconds.
 
-Use **Demo scenario** because it is deterministic and does not need Amass.
+Use **Run demo**. It is deterministic, local, and synthetic. It does not need Amass.
 
 Target path: `docs/assets/trialtwin-demo.gif`
 
 Do not generate a fake UI image. Record the real running app.
 
+## Scenario (real engine, not staged ranks)
+
+Scenario A: Late · amyloid-beta · ADAS-Cog · 12 months · biomarker **Required**.
+
+Scenario B: the same protocol except biomarker **Not required**.
+
+That one field swap is the strongest honest neighborhood movement on the bundled six-record set: all three top neighbors change, and the top match changes.
+
 ## Exact flow
 
-1. Start the app: `streamlit run app.py`
-2. Open the app in the browser.
-3. Ensure the TrialTwin title is visible.
-4. Click **Demo scenario**.
-5. Show historical match cards, similarity, and coverage.
-6. Open **Why this match?**
-7. Close it if necessary.
-8. Show the preset what-if change (biomarker Required → Not required).
-9. Show **historical neighborhood changed**.
+1. Open the deployed or local app (`streamlit run app.py`).
+2. Position the browser at about 90% zoom if needed (~1100–1400 px wide).
+3. Show the TrialTwin hero and protocol panel (0–2 s).
+4. Click **Run demo**.
+5. Pause briefly on historical match cards, similarity, and coverage (4–6 s).
+6. Open **Why this match?** to show the match fingerprint (6–8 s).
+7. Show the protocol change card: Biomarker confirmation **Required → Not required** (8–10 s).
+8. Show **Historical neighborhood shift** (rank-flow Before → After).
+9. Pause on **3 of 3 top historical neighbors changed** (13–15 s).
 10. Stop recording.
 
 Do not show the terminal, API keys, desktop clutter, Streamlit errors, long loading delays, or unrelated tabs.

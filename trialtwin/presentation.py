@@ -40,26 +40,29 @@ OWNED_SESSION_KEYS = frozenset(
 LOCKED_DISEASE = "Alzheimer's disease"
 LOCKED_PHASE = "Phase III"
 
+# Demo A/B differ only in biomarker confirmation. On the bundled synthetic
+# set that single flip swaps all three top neighbors (enriched vs unenriched)
+# under current weights. Endpoint CDR-SB→ADAS-Cog does not.
 DEMO_PROTOCOL_A = Protocol(
     disease=LOCKED_DISEASE,
     phase=LOCKED_PHASE,
     intervention="amyloid-beta",
-    disease_stage="Early",
+    disease_stage="Late",
     biomarker_strategy=True,
     sample_size=1200,
-    duration_months=18,
-    primary_endpoint="CDR-SB",
+    duration_months=12,
+    primary_endpoint="ADAS-Cog",
 )
 
 DEMO_PROTOCOL_B = Protocol(
     disease=LOCKED_DISEASE,
     phase=LOCKED_PHASE,
     intervention="amyloid-beta",
-    disease_stage="Early",
+    disease_stage="Late",
     biomarker_strategy=False,
     sample_size=1200,
-    duration_months=18,
-    primary_endpoint="CDR-SB",
+    duration_months=12,
+    primary_endpoint="ADAS-Cog",
 )
 
 FEATURE_LABEL = {
