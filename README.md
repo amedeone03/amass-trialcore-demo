@@ -8,7 +8,7 @@ Copenhagen · September 2026
 
 > **Change your protocol. See which historical trials it starts to resemble.**
 
-TrialTwin is an interactive sandbox for comparing a hypothetical clinical-trial protocol with historical trial designs. It ranks the closest historical neighbors, explains what matched, and lets researchers change one protocol decision to see how the historical neighborhood moves.
+TrialTwin is an interactive sandbox for comparing a hypothetical clinical-trial protocol with historical trial designs. It finds the closest historical neighbors, explains what drives each match, and shows how the neighborhood changes when one design decision changes.
 
 <p align="center">
   <a href="https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/">
@@ -22,22 +22,29 @@ TrialTwin is an interactive sandbox for comparing a hypothetical clinical-trial 
        width="920">
 </p>
 
-## Why TrialTwin?
+## What TrialTwin does
 
-Clinical-trial benchmarking often means searching registries and comparing populations, endpoints, interventions, sample sizes, and biomarker strategies by hand.
+A researcher defines a hypothetical **Alzheimer's disease Phase III** protocol using characteristics such as:
 
-TrialTwin turns that into an interactive workflow for Alzheimer's disease Phase III designs. Similarity is historical resemblance, not a prediction of trial success.
+- disease stage
+- biomarker confirmation
+- duration
+- primary endpoint
+- sample size
+- intervention
 
-## From protocol to historical neighborhood
+TrialTwin compares that design with historical trial records and surfaces the closest matches.
 
-```mermaid
-flowchart LR
-    A[Design] --> B[Match]
-    B --> C[Explain]
-    C --> D[What-if]
-```
+For each match, it shows where the resemblance comes from. Change one protocol decision and TrialTwin recomputes the historical neighborhood, making the resulting rank shift visible.
 
-**Design** a hypothetical protocol. **Match** it against retrieved historical designs. **Explain** feature-level reasons and registry provenance. **What-if:** change one design choice and rerank the neighborhood.
+## How it works
+
+**Design → Match → Explain → What-if**
+
+**Design** a hypothetical protocol.  
+**Match** it against retrieved historical trial designs.  
+**Explain** feature-level resemblance and source evidence.  
+**What-if** one design decision changes? Recompute the neighborhood and visualize which trials move in or out.
 
 Alzheimer's disease and Phase III define the candidate pool; they are not part of the similarity score.
 
@@ -45,18 +52,35 @@ Alzheimer's disease and Phase III define the candidate pool; they are not part o
 
 | Metric | Meaning |
 | --- | --- |
-| **Historical similarity** | Resemblance among the historical fields that were comparable |
+| **Historical similarity** | Resemblance among fields that can actually be compared |
 | **Comparison coverage** | How much of the intended comparison had usable historical data |
 
-> A high similarity with low coverage should be interpreted cautiously.
+> **High similarity does not necessarily mean high comparison coverage.**
 
-[Read the scoring methodology](docs/SCORING.md)
+See [`docs/SCORING.md`](docs/SCORING.md) for the scoring methodology.
+
+## Under the hood
+
+| Layer | Role |
+| --- | --- |
+| **Streamlit** | Interactive protocol and what-if interface |
+| **Amass TrialCore** | Historical clinical-trial records |
+| **TrialTwin Python package** | Normalization, similarity, ranking, and explanation |
+| **Local synthetic dataset** | Deterministic demo mode |
+| **Plotly** | Match-profile and neighborhood-shift visualizations |
+
+The matching pipeline preserves missing information rather than silently inventing clinical values.
 
 ## Data modes
 
-**Live Amass** — TrialCore records where available, with registry links when Amass provides `sourceUrl`.
+| Mode | Data source | Purpose |
+| --- | --- | --- |
+| **Live Amass** | Amass TrialCore | Explore retrieved historical trial records |
+| **Run demo** | Bundled synthetic records | Deterministic, reproducible walkthrough |
 
-**Demo** — Bundled synthetic records for a deterministic demonstration (`Run demo` never calls Amass).
+`Run demo` never calls Amass.
+
+Where available, live records include registry provenance and source links.
 
 ## Quick start
 
@@ -65,36 +89,28 @@ git clone https://github.com/amedeone03/amass-trialcore-demo.git
 cd amass-trialcore-demo
 
 python3 -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
+source .venv/bin/activate
+# Windows: .venv\Scripts\activate
 
 pip install -r requirements.txt
 cp .env.example .env
+
 streamlit run app.py
 ```
 
-`AMASS_API_KEY` is optional for the synthetic demo.
+`AMASS_API_KEY` is optional for the synthetic demo. Live Amass mode requires it in `.env`.
 
-## Built in one day
+## Team
 
-TrialTwin was created during the **AI in Life Sciences Hackathon** at DTU Skylab in Copenhagen.
+Built in one day at the **AI in Life Sciences Hackathon**, DTU Skylab, Copenhagen · September 2026.
 
-**DTU Skylab × Cursor × Amass · September 2026**
-
-🥈 **2nd Place**
-
-**Team**  
-Amedeo Bozzoli · Christian Deluca · Marcos Cuervo Santos
-
-Amass TrialCore supplied the historical clinical-trial data layer, Cursor supported AI-assisted development, and Streamlit powered the interactive prototype.
+**Amedeo Bozzoli · Christian Deluca · Marcos Cuervo Santos**
 
 ## Limitations
 
-- Research/hackathon prototype.
-- Similarity is not a success probability.
+- Research/hackathon prototype, not a clinical decision-support product.
 - Live TrialCore fields may be incomplete.
 - Candidate retrieval is capped (`TRIALTWIN_CANDIDATE_LIMIT`, default 100), not exhaustive.
-
-Scoring details: [`docs/SCORING.md`](docs/SCORING.md)
 
 ## License
 
