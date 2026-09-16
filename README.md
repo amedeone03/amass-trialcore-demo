@@ -65,35 +65,53 @@ Each field is **exact**, **similar** (numbers only), **different**, or **unknown
 ## How to use it
 
 1. Open the [live demo](https://amedeone03-amass-trialcore-demo-app-yxl5za.streamlit.app/).
-2. Set the knobs on the left (or click **Demo scenario**).
+2. Set the knobs on the left, or click **Demo scenario**.
 3. **Find historical matches** loads Alzheimer's Phase III records from [Amass TrialCore](https://amass.tech) when a key is available, otherwise a small labeled prototype set.
-4. Read the top neighbors and open **Why this match?** — that table is the explanation of the percentage.
-5. Change **one** control (for example duration 18 → 24 months). **What if?** shows who entered and left the top three.
+4. Open **Why this match?** — that table *is* the score.
+5. Change **one** control. **What if?** shows who entered and left the top three.
 
 <p align="center">
-  <img src="docs/what-if.png" alt="What-if: one protocol change shifts the historical neighborhood" width="920">
-</p>
-
-<p align="center">
-  <img src="docs/neighborhood-shift.png" alt="Before and after historical similarity" width="920">
+  <img src="docs/what-if.png" alt="What-if: duration 18 to 36 months moves the neighborhood" width="920">
 </p>
 
 ---
 
 ## How scoring works
 
-```mermaid
-flowchart LR
-  P[Your protocol] --> E[Explainable scorer]
-  H[Amass TrialCore or local JSON] --> E
-  E --> N[Closest historical neighbors]
-  N --> W[What if? one design change]
-  W --> N
-```
+The scorer in `trialtwin/engine.py` is a **weighted checklist**, not a learned model. It answers: *on the fields we can see, how much does this historical protocol look like yours?* The result is a number in 0–100%. It is **not** a probability that the trial succeeds.
 
-The scorer in `trialtwin/engine.py` is a transparent weighted checklist, not a machine-learning model and not a clinical predictor. Heavier weights sit on stage, biomarker, and endpoint; duration and sample size get partial credit when they are close.
+### 1. Compare each field
 
-**Live Amass limits:** TrialCore does not classify success or failure, and often has no structured disease stage or biomarker flag. Those features show as unknown and do not count. Disease and phase already match almost every row in this search, so live scores can look high even when the trials are very different drugs. The prototype JSON is synthetic and labeled only so the sandbox can show an outcome profile.
+| Field | Weight | How it scores |
+| --- | ---: | --- |
+| Disease stage | 20% | Exact match or 0 |
+| Biomarker confirmation | 20% | Exact match or 0 |
+| Disease | 15% | Exact match or 0 |
+| Primary endpoint | 15% | Exact match or 0 |
+| Phase | 10% | Exact match or 0 |
+| Duration | 10% | Partial: `max(0, 1 − \|your months − theirs\| / 18)` |
+| Sample size | 5% | Partial: `max(0, 1 − \|your N − theirs\| / 2000)` |
+| Target | 5% | Exact match or 0 |
+
+Weights add to 100%. Categories are all-or-nothing. Numbers fade linearly: 18 vs 18 months is full credit; 18 vs 36 months is 0 duration credit.
+
+Each row is tagged **exact**, **similar** (numbers only), **different**, or **unknown**.
+
+### 2. Drop unknowns, then renormalize
+
+If a field is missing on either side (`unknown`, empty, or `ambiguous: …`), it is **not guessed**. That weight is taken out of the denominator, and the remaining weights are scaled so they still sum to 1.
+
+Example: live TrialCore often has no stage and no biomarker (40% of the checklist). Those 40% are dropped. Disease + phase still match almost every Alzheimer's Phase III row, so they suddenly make up a large share of the score. That is why live matches can sit in the 85–97% band even when the drugs are unrelated.
+
+### 3. Add it up and rank
+
+For every historical trial:
+
+`similarity = sum( (weight / comparable_weights) × field_score )`
+
+Trials are sorted by that score, then by trial id. The UI shows the top three as the **historical neighborhood**. **What if?** runs the same ranking twice (before vs after one knob) and reports which neighbors moved.
+
+**Why this match?** is the honest view of the percentage: green checks are the weight you actually received; question marks did not enter the score.
 
 ---
 
